@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - TicketFlow</title>
+    <meta name="description" content="Manage and view your active support and development tickets.">
+    <link rel="stylesheet" href="css/style.css">
+    <script>
+        // Inline blocking script to prevent Flash of Unauthenticated Content (FOUC)
+        (function() {
+            const token = localStorage.getItem('access_token');
+            if (!token) {
+                window.location.href = 'index.html';
+            }
+        })();
+    </script>
+</head>
+<body>
+
+    <!-- Outer Panel Header (Pitch Black) -->
+    <header>
+        <a href="#" class="logo" id="logo-dashboard">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+            Ticket<span>Flow</span>
+        </a>
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <span style="font-size: 0.85rem; color: var(--text-secondary);" id="connection-status">Connected</span>
+            <button id="btn-logout" class="btn-secondary">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+                Sign Out
+            </button>
+        </div>
+    </header>
+
+    <!-- Dashboard Layout Wrapper -->
+    <div class="dashboard-wrapper">
+        
+        <!-- Sidebar (Deep Charcoal) -->
+        <aside class="sidebar">
+            <ul class="sidebar-menu">
+                <li>
+                    <a href="#" class="sidebar-item-link active" id="menu-overview">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="7" height="9" />
+                            <rect x="14" y="3" width="7" height="5" />
+                            <rect x="14" y="12" width="7" height="9" />
+                            <rect x="3" y="16" width="7" height="5" />
+                        </svg>
+                        Overview
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="sidebar-item-link" id="menu-tickets">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                            <polyline points="14 2 14 7 20 7" />
+                            <line x1="16" y1="13" x2="8" y2="13" />
+                            <line x1="16" y1="17" x2="8" y2="17" />
+                            <polyline points="10 9 9 9 8 9" />
+                        </svg>
+                        All Tickets
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="sidebar-item-link" id="menu-settings">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3" />
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                        </svg>
+                        Settings
+                    </a>
+                </li>
+            </ul>
+            
+            <!-- User Profile Section at Bottom of Sidebar -->
+            <div class="user-profile-section" id="profile-container">
+                <div class="user-avatar" id="user-avatar-initials">U</div>
+                <div class="user-info">
+                    <div class="user-name" id="display-user-name">Loading...</div>
+                    <div class="user-email" id="display-user-email">Loading...</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Dashboard Body (Near Black) -->
+        <main class="dashboard-main">
+            
+            <!-- Dashboard Header Section -->
+            <div class="dashboard-header">
+                <div class="dashboard-title">
+                    <h1 id="welcome-title">Welcome to TicketFlow</h1>
+                    <p>Here is your support overview for today.</p>
+                </div>
+                <button class="btn-primary" style="width: auto; padding: 0.5rem 1.25rem;" id="btn-new-ticket">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                    New Ticket
+                </button>
+            </div>
+
+            <!-- Dashboard Content -->
+            <section class="welcome-banner">
+                <h2 id="greeting-banner">Hello, <span id="span-user-name">User</span>!</h2>
+                <p>You have successfully logged in using your Python backend and PostgreSQL authentication flow. This dashboard marks the beginning of your Ticketing System. In the next steps, we can start adding features to submit, prioritize, assign, and track technical tickets.</p>
+            </section>
+
+            <section class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Total Tickets</div>
+                    <div class="stat-value" id="stat-total">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Open Tickets</div>
+                    <div class="stat-value" id="stat-open" style="color: var(--accent-yellow);">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Resolved</div>
+                    <div class="stat-value" id="stat-resolved" style="color: var(--success-green);">0</div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script>
+        // Dashboard state management
+        const API_URL = (window.location.origin === 'null' || window.location.origin.startsWith('file:')) ? 'http://127.0.0.1:8000' : window.location.origin;
+
+        // Toast Helper
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            
+            // Icon selection
+            let iconSvg = '';
+            if (type === 'success') {
+                iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+            } else if (type === 'error') {
+                iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+            } else {
+                iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`;
+            }
+
+            toast.innerHTML = `${iconSvg} <span>${message}</span>`;
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(100%)';
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        // Fetch user data on load
+        async function fetchUserProfile() {
+            const token = localStorage.getItem('access_token');
+            if (!token) {
+                window.location.href = 'index.html';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/api/auth/me`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Session expired');
+                }
+
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonErr) {
+                    throw new Error('Failed to parse user profile response from server.');
+                }
+                const user = data.user;
+                
+                // Update UI elements
+                document.getElementById('display-user-name').textContent = user.full_name;
+                document.getElementById('display-user-email').textContent = user.email;
+                document.getElementById('span-user-name').textContent = user.full_name;
+                
+                // Initials avatar
+                const initials = user.full_name
+                    .split(' ')
+                    .map(word => word[0])
+                    .join('')
+                    .toUpperCase()
+                    .substring(0, 2);
+                document.getElementById('user-avatar-initials').textContent = initials || 'U';
+
+                showToast(`Welcome back, ${user.full_name}!`, 'success');
+            } catch (err) {
+                console.error(err);
+                localStorage.removeItem('access_token');
+                window.location.href = 'index.html?expired=true';
+            }
+        }
+
+        // Logout logic
+        document.getElementById('btn-logout').addEventListener('click', () => {
+            localStorage.removeItem('access_token');
+            window.location.href = 'index.html';
+        });
+
+        // Initialize dashboard
+        window.addEventListener('DOMContentLoaded', fetchUserProfile);
+    </script>
+</body>
+</html>

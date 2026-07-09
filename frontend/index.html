@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In & Sign Up - TicketFlow</title>
+    <meta name="description" content="Access your ticketing dashboard. Register or log in to manage tickets, request support, and resolve issues.">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+    <!-- Outer Panel Header (Pitch Black) -->
+    <header>
+        <a href="#" class="logo" id="logo-link">
+            <!-- Simple SVG Icon with Yellow Accent -->
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+            Ticket<span>Flow</span>
+        </a>
+        <a href="https://github.com" target="_blank" class="nav-link" id="nav-github-link">Documentation</a>
+    </header>
+
+    <!-- Main Dashboard Body (Near Black wrapper) -->
+    <main class="auth-wrapper">
+        <div class="auth-card" id="auth-container-card">
+            
+            <!-- --- SIGN IN FORM --- -->
+            <div id="signin-container" class="form-container active">
+                <div class="auth-card-header">
+                    <h2 id="signin-title">Welcome Back</h2>
+                    <p>Enter your credentials to access your tickets</p>
+                </div>
+                
+                <form id="signin-form" novalidate>
+                    <div class="form-group">
+                        <label for="signin-email" class="form-label">Email Address</label>
+                        <div class="input-wrapper">
+                            <input 
+                                type="email" 
+                                id="signin-email" 
+                                class="form-input" 
+                                placeholder="name@company.com" 
+                                required
+                            >
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="signin-password" class="form-label">Password</label>
+                        <div class="input-wrapper">
+                            <input 
+                                type="password" 
+                                id="signin-password" 
+                                class="form-input" 
+                                placeholder="Enter password" 
+                                required
+                            >
+                            <button type="button" class="password-toggle" id="toggle-signin-password" aria-label="Toggle password visibility">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="eye-icon">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                    <circle cx="12" cy="12" r="3" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn-primary" id="btn-signin">
+                        <span>Sign In</span>
+                    </button>
+                </form>
+                
+                <div class="auth-switch">
+                    Don't have an account? 
+                    <a href="#" class="auth-switch-link" id="link-to-signup">Create one here</a>
+                </div>
+            </div>
+
+            <!-- --- SIGN UP FORM --- -->
+            <div id="signup-container" class="form-container">
+                <div class="auth-card-header">
+                    <h2 id="signup-title">Get Started</h2>
+                    <p>Create an account to join TicketFlow</p>
+                </div>
+                
+                <form id="signup-form" novalidate>
+                    <div class="form-group">
+                        <label for="signup-fullname" class="form-label">Full Name</label>
+                        <div class="input-wrapper">
+                            <input 
+                                type="text" 
+                                id="signup-fullname" 
+                                class="form-input" 
+                                placeholder="John Doe" 
+                                required
+                            >
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="signup-email" class="form-label">Email Address</label>
+                        <div class="input-wrapper">
+                            <input 
+                                type="email" 
+                                id="signup-email" 
+                                class="form-input" 
+                                placeholder="name@company.com" 
+                                required
+                            >
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="signup-password" class="form-label">Password</label>
+                        <div class="input-wrapper">
+                            <input 
+                                type="password" 
+                                id="signup-password" 
+                                class="form-input" 
+                                placeholder="Min. 6 characters" 
+                                required
+                            >
+                            <button type="button" class="password-toggle" id="toggle-signup-password" aria-label="Toggle password visibility">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="eye-icon">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                    <circle cx="12" cy="12" r="3" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn-primary" id="btn-signup">
+                        <span>Create Account</span>
+                    </button>
+                </form>
+                
+                <div class="auth-switch">
+                    Already have an account? 
+                    <a href="#" class="auth-switch-link" id="link-to-signin">Sign in here</a>
+                </div>
+            </div>
+            
+        </div>
+    </main>
+
+    <!-- Toast Notification Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
