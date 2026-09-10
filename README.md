@@ -1,6 +1,6 @@
-# TicketFlow - Ticketing System
+# Khin Ticket - Ticketing System
 
-TicketFlow is a modern, responsive ticketing system designed to streamline issue tracking, customer support, and developer workflows. This project exposes you to core Python backend services, relational database querying with raw PostgreSQL, and modern vanilla web designs on the frontend.
+Khin Ticket is a modern, responsive ticketing system designed to streamline issue tracking, customer support, and developer workflows. This project exposes you to core Python backend services, relational database querying with raw PostgreSQL, and modern vanilla web designs on the frontend.
 
 ## 🚀 Technology Stack
 
@@ -78,11 +78,11 @@ ticketing_system/
 
 ## 🛠️ Installation & Setup
 
-Follow these steps to run TicketFlow on your local machine:
+Follow these steps to run Khin Ticket on your local machine:
 
 ### 1. Database Setup (Supabase)
 1. Go to [Supabase](https://supabase.com) and sign in or sign up.
-2. Create a new project (e.g., `TicketFlow`).
+2. Create a new project (e.g., `Khin Ticket`).
 3. Once the project is provisioned, go to **Project Settings** (gear icon at the bottom of the sidebar) -> **Database**.
 4. Scroll down to the **Connection Info** section and look for **Connection string**.
 5. Select the **URI** tab. Copy the connection string. It will look similar to this:
@@ -115,12 +115,22 @@ Follow these steps to run TicketFlow on your local machine:
    ```
 
 ### 4. Run the Application
+
+You can access and run the application in two ways:
+
+#### Option A: Run everything through the Python server (Recommended)
 1. Start the server using Uvicorn:
    ```bash
-   python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+   python -m uvicorn backend.main:app --host 127.0.0.1 --port 5000
    ```
 2. Open your web browser and navigate to:
-   **[http://127.0.0.1:8000](http://127.0.0.1:8000)**
+   **[http://127.0.0.1:5000](http://127.0.0.1:5000)** (the backend automatically hosts the frontend assets).
+
+#### Option B: Run the frontend with VS Code Live Server
+1. Start the Python backend server on port `5000` using the command in Option A (so the API is running).
+2. Start the **Live Server** ("Go Live") extension in VS Code. It will open the frontend on:
+   **[http://127.0.0.1:5500](http://127.0.0.1:5500)**
+   *(Note: The frontend automatically detects port mismatches and maps backend requests back to port `5000` through CORS).*
 
 ---
 

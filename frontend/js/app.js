@@ -1,166 +1,369 @@
-// Frontend Authentication Handler for TicketFlow
+// Frontend Authentication Handler for Khin Ticket
 
-const API_URL = (window.location.origin === 'null' || window.location.origin.startsWith('file:')) ? 'http://127.0.0.1:8000' : window.location.origin;
+const API_URL = (window.location.port !== '5000') ? 'http://127.0.0.1:5000' : window.location.origin;
 
 document.addEventListener('DOMContentLoaded', () => {
-    // --- State Toggles & View Controls ---
+    // --- Container Elements ---
     const signinContainer = document.getElementById('signin-container');
     const signupContainer = document.getElementById('signup-container');
+    const signupPasswordContainer = document.getElementById('signup-password-container');
+
+    // --- Switch Links & Navigation Buttons ---
     const linkToSignup = document.getElementById('link-to-signup');
     const linkToSignin = document.getElementById('link-to-signin');
+    const linkStep2ToSignin = document.getElementById('link-step2-to-signin');
+    const btnBackToStep1 = document.getElementById('btn-back-to-step1');
 
-    linkToSignup.addEventListener('click', (e) => {
-        e.preventDefault();
-        signinContainer.classList.remove('active');
-        signupContainer.classList.add('active');
-        clearForms();
-    });
+    // --- State Storage for 2-step Signup ---
+    let pendingSignupData = null;
 
-    linkToSignin.addEventListener('click', (e) => {
-        e.preventDefault();
-        signupContainer.classList.remove('active');
-        signinContainer.classList.add('active');
-        clearForms();
-    });
+    // View Switching Functions
+    function showSignIn() {
+        if (signinContainer) signinContainer.classList.add('active');
+        if (signupContainer) signupContainer.classList.remove('active');
+        if (signupPasswordContainer) signupPasswordContainer.classList.remove('active');
+    }
+
+    function showSignUpStep1() {
+        if (signinContainer) signinContainer.classList.remove('active');
+        if (signupContainer) signupContainer.classList.add('active');
+        if (signupPasswordContainer) signupPasswordContainer.classList.remove('active');
+    }
+
+    function showSignUpStep2() {
+        if (signinContainer) signinContainer.classList.remove('active');
+        if (signupContainer) signupContainer.classList.remove('active');
+        if (signupPasswordContainer) signupPasswordContainer.classList.add('active');
+    }
+
+    // Switch Event Listeners
+    if (linkToSignup) {
+        linkToSignup.addEventListener('click', (e) => {
+            e.preventDefault();
+            showSignUpStep1();
+            clearForms();
+            pendingSignupData = null;
+        });
+    }
+
+    if (linkToSignin) {
+        linkToSignin.addEventListener('click', (e) => {
+            e.preventDefault();
+            showSignIn();
+            clearForms();
+            pendingSignupData = null;
+        });
+    }
+
+    if (linkStep2ToSignin) {
+        linkStep2ToSignin.addEventListener('click', (e) => {
+            e.preventDefault();
+            showSignIn();
+            clearForms();
+            pendingSignupData = null;
+        });
+    }
+
+    if (btnBackToStep1) {
+        btnBackToStep1.addEventListener('click', (e) => {
+            e.preventDefault();
+            showSignUpStep1();
+        });
+    }
 
     // --- Password Visibility Toggles ---
     setupPasswordToggle('signin-password', 'toggle-signin-password');
+    setupPasswordToggle('signup-tech-passcode', 'toggle-signup-tech-passcode');
     setupPasswordToggle('signup-password', 'toggle-signup-password');
+    setupPasswordToggle('signup-confirm-password', 'toggle-signup-confirm-password');
 
-    // --- Form Submissions ---
+    // --- Role Change Toggle for Tech Security Passcode ---
+    const roleSelect = document.getElementById('signup-role');
+    const techPasscodeGroup = document.getElementById('tech-passcode-group');
+    const signupTechPasscodeInput = document.getElementById('signup-tech-passcode');
+
+    if (roleSelect && techPasscodeGroup) {
+        roleSelect.addEventListener('change', () => {
+            const val = roleSelect.value;
+            if (val === 'agent' || val === 'admin') {
+                techPasscodeGroup.style.display = 'block';
+                if (signupTechPasscodeInput) signupTechPasscodeInput.focus();
+            } else {
+                techPasscodeGroup.style.display = 'none';
+                if (signupTechPasscodeInput) signupTechPasscodeInput.value = '';
+            }
+        });
+    }
+
+    // --- Form Elements ---
     const signinForm = document.getElementById('signin-form');
     const signupForm = document.getElementById('signup-form');
+    const passwordForm = document.getElementById('password-form');
 
-    signinForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const emailInput = document.getElementById('signin-email');
-        const passwordInput = document.getElementById('signin-password');
-        const btnSignin = document.getElementById('btn-signin');
-
-        // Validation
-        const email = emailInput.value.trim();
-        const password = passwordInput.value;
-
-        if (!email || !password) {
-            showToast('Please fill in all fields.', 'error');
-            return;
-        }
-
-        if (!validateEmail(email)) {
-            showToast('Please enter a valid email address.', 'error');
-            return;
-        }
-
-        // Send API Request
-        try {
-            setLoading(btnSignin, true, 'Signing In...');
+    // ==========================================
+    // 1. SIGN IN HANDLER
+    // ==========================================
+    if (signinForm) {
+        signinForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
             
-            const response = await fetch(`${API_URL}/api/auth/login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password })
-            });
+            const emailInput = document.getElementById('signin-email');
+            const passwordInput = document.getElementById('signin-password');
+            const btnSignin = document.getElementById('btn-signin');
 
-            let data;
+            const email = emailInput ? emailInput.value.trim() : '';
+            const password = passwordInput ? passwordInput.value : '';
+
+            if (!email) {
+                showToast('Please enter your email address.', 'error');
+                if (emailInput) emailInput.focus();
+                return;
+            }
+
+            if (!validateEmail(email)) {
+                showToast('Please enter a valid email address.', 'error');
+                if (emailInput) emailInput.focus();
+                return;
+            }
+
+            if (!password) {
+                showToast('Please enter your password.', 'error');
+                if (passwordInput) passwordInput.focus();
+                return;
+            }
+
             try {
-                data = await response.json();
-            } catch (jsonErr) {
-                throw new Error(`Failed to parse server response (Status ${response.status}). Please make sure your Python server is running and your PostgreSQL database is reachable.`);
+                setLoading(btnSignin, true, 'Signing In...');
+                
+                const response = await fetch(`${API_URL}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonErr) {
+                    throw new Error(`Failed to parse server response (Status ${response.status}). Please verify the backend service is running.`);
+                }
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Authentication failed. Please check your credentials.');
+                }
+
+                // Store Token & User Info
+                localStorage.setItem('access_token', data.access_token);
+                if (data.user) {
+                    localStorage.setItem('user_role', data.user.role || 'customer');
+                    localStorage.setItem('user_name', data.user.full_name || '');
+                    localStorage.setItem('user_email', data.user.email || '');
+                    localStorage.setItem('user_department', data.user.department || 'General');
+                    localStorage.setItem('user_position', data.user.position || 'Employee');
+                }
+                showToast('Sign-in successful! Redirecting...', 'success');
+                
+                // Role-based routing: Customers go to Customer Portal, Tech Staff go to Admin Dashboard
+                setTimeout(() => {
+                    const role = data.user ? (data.user.role || 'customer') : 'customer';
+                    if (role === 'admin' || role === 'agent') {
+                        window.location.href = 'dashboard.html';
+                    } else {
+                        window.location.href = 'portal.html';
+                    }
+                }, 1000);
+
+            } catch (error) {
+                console.error('Sign-in error:', error);
+                showToast(error.message, 'error');
+                setLoading(btnSignin, false, 'Sign In');
+            }
+        });
+    }
+
+    // ==========================================
+    // 2. SIGN UP STEP 1 HANDLER (Profile & Role)
+    // ==========================================
+    if (signupForm) {
+        signupForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            const fullnameInput = document.getElementById('signup-fullname');
+            const emailInput = document.getElementById('signup-email');
+            const departmentInput = document.getElementById('signup-department');
+            const positionInput = document.getElementById('signup-position');
+            const roleInput = document.getElementById('signup-role');
+            const techPasscodeInput = document.getElementById('signup-tech-passcode');
+
+            const fullName = fullnameInput ? fullnameInput.value.trim() : '';
+            const email = emailInput ? emailInput.value.trim() : '';
+            const department = departmentInput ? departmentInput.value.trim() : 'General';
+            const position = positionInput ? positionInput.value.trim() : 'Employee';
+            const role = roleInput ? roleInput.value : 'customer';
+            const techPasscode = techPasscodeInput ? techPasscodeInput.value.trim() : '';
+
+            if (!fullName) {
+                showToast('Please enter your full name.', 'error');
+                if (fullnameInput) fullnameInput.focus();
+                return;
             }
 
-            if (!response.ok) {
-                throw new Error(data.detail || 'Authentication failed. Please check your credentials.');
+            if (!email) {
+                showToast('Please enter your email address.', 'error');
+                if (emailInput) emailInput.focus();
+                return;
             }
 
-            // Save Token & User Info
-            localStorage.setItem('access_token', data.access_token);
-            showToast('Sign-in successful! Redirecting...', 'success');
-            
-            // Redirect to Dashboard
-            setTimeout(() => {
-                window.location.href = 'dashboard.html';
-            }, 1000);
+            if (!validateEmail(email)) {
+                showToast('Please enter a valid email address.', 'error');
+                if (emailInput) emailInput.focus();
+                return;
+            }
 
-        } catch (error) {
-            console.error('Sign-in error:', error);
-            showToast(error.message, 'error');
-            setLoading(btnSignin, false, 'Sign In');
-        }
-    });
+            if (!position) {
+                showToast('Please enter your position or job title.', 'error');
+                if (positionInput) positionInput.focus();
+                return;
+            }
 
-    signupForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
+            if ((role === 'admin' || role === 'agent') && !techPasscode) {
+                showToast('Tech Security Passcode is required to register as Tech Staff or Admin.', 'error');
+                if (techPasscodeInput) techPasscodeInput.focus();
+                return;
+            }
 
-        const fullnameInput = document.getElementById('signup-fullname');
-        const emailInput = document.getElementById('signup-email');
-        const passwordInput = document.getElementById('signup-password');
-        const btnSignup = document.getElementById('btn-signup');
+            // Save Step 1 state
+            pendingSignupData = {
+                fullName,
+                email,
+                department,
+                position,
+                role,
+                techPasscode
+            };
 
-        // Validation
-        const fullName = fullnameInput.value.trim();
-        const email = emailInput.value.trim();
-        const password = passwordInput.value;
+            // Personalize Step 2 card
+            const passwordSubtitle = document.getElementById('password-subtitle');
+            if (passwordSubtitle) {
+                passwordSubtitle.textContent = `Set personal password for ${email}`;
+            }
 
-        if (!fullName || !email || !password) {
-            showToast('Please fill in all fields.', 'error');
-            return;
-        }
+            // Navigate to Step 2
+            showSignUpStep2();
+            const signupPasswordInput = document.getElementById('signup-password');
+            if (signupPasswordInput) signupPasswordInput.focus();
+        });
+    }
 
-        if (!validateEmail(email)) {
-            showToast('Please enter a valid email address.', 'error');
-            return;
-        }
+    // ==========================================
+    // 3. SIGN UP STEP 2 HANDLER (Password & Confirmation)
+    // ==========================================
+    if (passwordForm) {
+        passwordForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
 
-        if (password.length < 6) {
-            showToast('Password must be at least 6 characters long.', 'error');
-            return;
-        }
+            if (!pendingSignupData) {
+                showToast('Registration session lost. Please complete Step 1 first.', 'error');
+                showSignUpStep1();
+                return;
+            }
 
-        // Send API Request
-        try {
-            setLoading(btnSignup, true, 'Creating Account...');
+            const passwordInput = document.getElementById('signup-password');
+            const confirmPasswordInput = document.getElementById('signup-confirm-password');
+            const btnCompleteSignup = document.getElementById('btn-complete-signup');
 
-            const response = await fetch(`${API_URL}/api/auth/register`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    full_name: fullName, 
-                    email: email, 
-                    password: password 
-                })
-            });
+            const password = passwordInput ? passwordInput.value : '';
+            const confirmPassword = confirmPasswordInput ? confirmPasswordInput.value : '';
 
-            let data;
+            if (!password) {
+                showToast('Please enter an account password.', 'error');
+                if (passwordInput) passwordInput.focus();
+                return;
+            }
+
+            if (password.length < 6) {
+                showToast('Password must be at least 6 characters long.', 'error');
+                if (passwordInput) passwordInput.focus();
+                return;
+            }
+
+            if (password !== confirmPassword) {
+                showToast('Passwords do not match. Please re-enter and confirm.', 'error');
+                if (confirmPasswordInput) {
+                    confirmPasswordInput.focus();
+                    confirmPasswordInput.select();
+                }
+                return;
+            }
+
+            // Send registration payload
             try {
-                data = await response.json();
-            } catch (jsonErr) {
-                throw new Error(`Failed to parse server response (Status ${response.status}). Please make sure your Python server is running and your PostgreSQL database is reachable.`);
+                setLoading(btnCompleteSignup, true, 'Creating Account...');
+
+                const response = await fetch(`${API_URL}/api/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        full_name: pendingSignupData.fullName,
+                        email: pendingSignupData.email,
+                        department: pendingSignupData.department,
+                        position: pendingSignupData.position,
+                        role: pendingSignupData.role,
+                        tech_passcode: pendingSignupData.techPasscode || null,
+                        password: password
+                    })
+                });
+
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonErr) {
+                    throw new Error(`Failed to parse server response (Status ${response.status}). Please verify the backend service is reachable.`);
+                }
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Registration failed. Please try again.');
+                }
+
+                // Registration successful! Store tokens and user state
+                if (data.access_token) {
+                    localStorage.setItem('access_token', data.access_token);
+                    if (data.user) {
+                        localStorage.setItem('user_role', data.user.role || 'customer');
+                        localStorage.setItem('user_name', data.user.full_name || '');
+                        localStorage.setItem('user_email', data.user.email || '');
+                        localStorage.setItem('user_department', data.user.department || 'General');
+                        localStorage.setItem('user_position', data.user.position || 'Employee');
+                    }
+                    showToast('Account created successfully! Redirecting...', 'success');
+
+                    const userRole = data.user ? (data.user.role || 'customer') : 'customer';
+                    setTimeout(() => {
+                        if (userRole === 'admin' || userRole === 'agent') {
+                            window.location.href = 'dashboard.html';
+                        } else {
+                            window.location.href = 'portal.html';
+                        }
+                    }, 1000);
+                } else {
+                    showToast('Account created successfully! Please sign in.', 'success');
+                    setTimeout(() => {
+                        showSignIn();
+                        clearForms();
+                        const signinEmailInput = document.getElementById('signin-email');
+                        if (signinEmailInput) signinEmailInput.value = pendingSignupData ? pendingSignupData.email : '';
+                        setLoading(btnCompleteSignup, false, 'Create Account');
+                        pendingSignupData = null;
+                    }, 1200);
+                }
+
+            } catch (error) {
+                console.error('Sign-up error:', error);
+                showToast(error.message, 'error');
+                setLoading(btnCompleteSignup, false, 'Create Account');
             }
-
-            if (!response.ok) {
-                throw new Error(data.detail || 'Registration failed. Please try again.');
-            }
-
-            // Successful Registration
-            showToast('Account created successfully! Please sign in.', 'success');
-            
-            // Switch to Login View and auto-fill email
-            setTimeout(() => {
-                signupContainer.classList.remove('active');
-                signinContainer.classList.add('active');
-                clearForms();
-                document.getElementById('signin-email').value = email;
-                document.getElementById('signin-password').focus();
-                setLoading(btnSignup, false, 'Create Account');
-            }, 1200);
-
-        } catch (error) {
-            console.error('Sign-up error:', error);
-            showToast(error.message, 'error');
-            setLoading(btnSignup, false, 'Create Account');
-        }
-    });
+        });
+    }
 
     // Check query params for session expiration redirect
     const urlParams = new URLSearchParams(window.location.search);
@@ -180,21 +383,23 @@ function setupPasswordToggle(inputId, buttonId) {
     if (!input || !button) return;
 
     button.addEventListener('click', () => {
-        const type = input.getAttribute('type') === 'password' ? 'text' : 'password';
+        const isPassword = input.getAttribute('type') === 'password';
+        const type = isPassword ? 'text' : 'password';
         input.setAttribute('type', type);
         
-        // Toggle SVG Eye Slash representation
         const eyeIcon = button.querySelector('.eye-icon');
-        if (type === 'text') {
-            eyeIcon.innerHTML = `
-                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                <line x1="1" y1="1" x2="23" y2="23" />
-            `;
-        } else {
-            eyeIcon.innerHTML = `
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                <circle cx="12" cy="12" r="3" />
-            `;
+        if (eyeIcon) {
+            if (type === 'text') {
+                eyeIcon.innerHTML = `
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                `;
+            } else {
+                eyeIcon.innerHTML = `
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                `;
+            }
         }
     });
 }
@@ -205,6 +410,7 @@ function validateEmail(email) {
 }
 
 function setLoading(button, isLoading, text) {
+    if (!button) return;
     const span = button.querySelector('span');
     if (isLoading) {
         button.disabled = true;
@@ -216,8 +422,15 @@ function setLoading(button, isLoading, text) {
 }
 
 function clearForms() {
-    document.getElementById('signin-form').reset();
-    document.getElementById('signup-form').reset();
+    const signinForm = document.getElementById('signin-form');
+    const signupForm = document.getElementById('signup-form');
+    const passwordForm = document.getElementById('password-form');
+    const techPasscodeGroup = document.getElementById('tech-passcode-group');
+
+    if (signinForm) signinForm.reset();
+    if (signupForm) signupForm.reset();
+    if (passwordForm) passwordForm.reset();
+    if (techPasscodeGroup) techPasscodeGroup.style.display = 'none';
 }
 
 // Toast Helper

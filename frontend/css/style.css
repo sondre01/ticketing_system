@@ -567,3 +567,311 @@ header {
     max-width: 600px;
     line-height: 1.5;
 }
+
+/* Role Badge */
+.role-badge {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.25rem;
+}
+
+.role-badge.admin {
+    background-color: rgba(250, 204, 21, 0.15);
+    color: var(--accent-yellow);
+    border: 1px solid var(--border-yellow-glow);
+}
+
+.role-badge.user {
+    background-color: rgba(74, 222, 128, 0.12);
+    color: var(--success-green);
+    border: 1px solid rgba(74, 222, 128, 0.2);
+}
+
+/* Ticket Filter Controls */
+.ticket-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.filter-tabs {
+    display: flex;
+    gap: 0.5rem;
+    background-color: var(--bg-deep-charcoal);
+    padding: 0.35rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.filter-tab {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.4rem 0.85rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.filter-tab:hover {
+    color: var(--text-primary);
+}
+
+.filter-tab.active {
+    background-color: var(--accent-yellow);
+    color: var(--bg-pitch-black);
+}
+
+.search-wrapper {
+    position: relative;
+    min-width: 250px;
+}
+
+.search-input {
+    width: 100%;
+    background-color: var(--bg-deep-charcoal);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.5rem 0.85rem 0.5rem 2.2rem;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    outline: none;
+    transition: var(--transition-smooth);
+}
+
+.search-input:focus {
+    border-color: var(--accent-yellow);
+}
+
+.search-icon {
+    position: absolute;
+    left: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    pointer-events: none;
+}
+
+/* Tickets Table Card */
+.tickets-card {
+    background-color: var(--bg-deep-charcoal);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.tickets-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.tickets-table th {
+    background-color: rgba(10, 10, 10, 0.6);
+    padding: 0.9rem 1.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.tickets-table td {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.9rem;
+    vertical-align: middle;
+}
+
+.tickets-table tr:hover td {
+    background-color: rgba(255, 255, 255, 0.02);
+    cursor: pointer;
+}
+
+.ticket-code-tag {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    color: var(--accent-yellow);
+    letter-spacing: 0.02em;
+}
+
+.ticket-title-link {
+    font-weight: 600;
+    color: var(--text-primary);
+    text-decoration: none;
+    display: block;
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ticket-requester-info {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* Status Badges */
+.badge {
+    display: inline-block;
+    padding: 0.25rem 0.65rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.badge-open {
+    background-color: rgba(250, 204, 21, 0.15);
+    color: var(--accent-yellow);
+    border: 1px solid var(--border-yellow-glow);
+}
+
+.badge-in_progress {
+    background-color: rgba(96, 165, 250, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(96, 165, 250, 0.3);
+}
+
+.badge-resolved {
+    background-color: rgba(74, 222, 128, 0.15);
+    color: var(--success-green);
+    border: 1px solid rgba(74, 222, 128, 0.3);
+}
+
+.badge-closed {
+    background-color: rgba(156, 163, 175, 0.15);
+    color: var(--text-secondary);
+    border: 1px solid rgba(156, 163, 175, 0.3);
+}
+
+/* Priority Indicator */
+.priority-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.priority-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.priority-low .priority-dot { background-color: #9ca3af; }
+.priority-medium .priority-dot { background-color: var(--accent-yellow); }
+.priority-high .priority-dot { background-color: #f97316; }
+.priority-urgent .priority-dot { background-color: var(--error-red); }
+
+.source-badge {
+    font-size: 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-secondary);
+}
+
+/* Modal Styling */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 500;
+}
+
+.modal-overlay.active {
+    display: flex;
+}
+
+.modal-box {
+    background-color: var(--bg-deep-charcoal);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    width: 90%;
+    max-width: 600px;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 2rem;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
+    animation: fadeIn 0.25s ease-out;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 1rem;
+}
+
+.modal-header h3 {
+    font-family: var(--font-heading);
+    font-size: 1.3rem;
+    font-weight: 700;
+}
+
+.btn-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.5rem;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.btn-close:hover {
+    color: var(--text-primary);
+}
+
+/* Comments thread inside ticket details modal */
+.comments-section {
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.comment-card {
+    background-color: var(--bg-pitch-black);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.comment-author {
+    font-size: 0.75rem;
+    color: var(--accent-yellow);
+    font-weight: 600;
+    margin-bottom: 0.35rem;
+    display: flex;
+    justify-content: space-between;
+}
+
+.comment-text {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+}
+
