@@ -185,7 +185,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. SIGN UP STEP 1 HANDLER (Profile & Role)
     // ==========================================
     if (signupForm) {
-        signupForm.addEventListener('submit', (e) => {
+        signupForm.addEventListener('submit', async (e) => {
             e.preventDefault();
 
             const fullnameInput = document.getElementById('signup-fullname');
@@ -194,6 +194,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const positionInput = document.getElementById('signup-position');
             const roleInput = document.getElementById('signup-role');
             const techPasscodeInput = document.getElementById('signup-tech-passcode');
+            const btnGotoPassword = document.getElementById('btn-goto-password');
 
             const fullName = fullnameInput ? fullnameInput.value.trim() : '';
             const email = emailInput ? emailInput.value.trim() : '';
@@ -226,10 +227,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            if ((role === 'admin' || role === 'agent') && !techPasscode) {
-                showToast('Tech Security Passcode is required to register as Tech Staff or Admin.', 'error');
-                if (techPasscodeInput) techPasscodeInput.focus();
-                return;
+            // Tech Role & Security Passcode Validation
+            if (role === 'admin' || role === 'agent' || techPasscode) {
+                if (!techPasscode) {
+                    showToast('Tech Security Passcode is required to register as Tech Staff or Admin.', 'error');
+                    if (techPasscodeInput) techPasscodeInput.focus();
+                    return;
+                }
+
+                // Verify passcode directly against backend before moving to Step 2
+                setLoading(btnGotoPassword, true, 'Verifying Passcode...');
+                try {
+                    const verifyRes = await fetch(`${API_URL}/api/auth/verify-passcode`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ passcode: techPasscode })
+                    });
+                    const verifyData = await verifyRes.json();
+                    if (!verifyRes.ok || !verifyData.valid) {
+                        setLoading(btnGotoPassword, false, 'Continue to Password &rarr;');
+                        showToast(verifyData.detail || 'Invalid Tech Security Passcode. Access denied.', 'error');
+                        if (techPasscodeInput) {
+                            techPasscodeInput.focus();
+                            techPasscodeInput.select();
+                        }
+                        return;
+                    }
+                } catch (verifyErr) {
+                    setLoading(btnGotoPassword, false, 'Continue to Password &rarr;');
+                    showToast('Unable to verify passcode with the server. Please check your connection.', 'error');
+                    return;
+                }
+                setLoading(btnGotoPassword, false, 'Continue to Password &rarr;');
             }
 
             // Save Step 1 state

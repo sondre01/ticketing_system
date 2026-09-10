@@ -135,7 +135,20 @@ def generate_ticket_code(cur) -> str:
     next_id = (res["max_id"] or 0) + 1
     return f"KT-{1000 + next_id}"
 
+class VerifyPasscodeRequest(BaseModel):
+    passcode: str = Field(..., min_length=1)
+
 # --- Auth Routes ---
+
+@app.post("/api/auth/verify-passcode")
+def verify_tech_passcode(req: VerifyPasscodeRequest):
+    cleaned_passcode = req.passcode.strip()
+    if cleaned_passcode == TECH_ACCESS_KEY:
+        return {"valid": True, "message": "Tech Security Passcode verified successfully."}
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Invalid Tech Security Passcode. Access denied."
+    )
 
 @app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
 def register(req: RegisterRequest):
@@ -176,29 +189,24 @@ def register(req: RegisterRequest):
     claims_tech_role = requested_role in ("admin", "agent", "operator")
 
     # Determine final role with validation and fixed passcode enforcement
-    if claims_tech_role or is_tech_dept or is_tech_pos:
-        # User is requesting or claiming tech team / admin status!
-        # Validate fixated security passcode
+    if claims_tech_role or tech_passcode:
+        # User is requesting tech team / admin status or provided a tech passcode
         if not tech_passcode or tech_passcode != TECH_ACCESS_KEY:
-            if claims_tech_role:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid or missing Tech Department passcode. Only authorized tech personnel with the security key can register for Tech Team access."
-                )
-            else:
-                # Regular employee registering without passcode: automatically assign customer role
-                final_role = "customer"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or missing Tech Department passcode. Only authorized tech personnel with the security key can register for Tech Team access."
+            )
+
+        # Passcode is valid! Check if non-tech department trying to claim tech role
+        non_tech_depts = ["hr", "human resources", "finance", "accounting", "sales", "marketing", "legal"]
+        if any(nt in dept_lower for nt in non_tech_depts) and not is_tech_pos:
+            final_role = "customer"
+        elif requested_role == "admin" or (is_lead_pos and requested_role != "agent"):
+            final_role = "admin"
         else:
-            # Passcode is valid! Check if non-tech department trying to claim tech role
-            non_tech_depts = ["hr", "human resources", "finance", "accounting", "sales", "marketing", "legal"]
-            if any(nt in dept_lower for nt in non_tech_depts) and not is_tech_pos:
-                final_role = "customer"
-            elif requested_role == "admin" or (is_lead_pos and requested_role != "agent"):
-                final_role = "admin"
-            else:
-                final_role = "agent"
+            final_role = "agent"
     else:
-        # Regular corporate employee / requester
+        # Regular corporate employee / requester without tech role or passcode
         final_role = "customer"
 
     pwd_hash = hash_password(req.password)
