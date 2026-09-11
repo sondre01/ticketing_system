@@ -125,15 +125,16 @@
                 <table class="tickets-table">
                     <thead>
                         <tr>
-                            <th style="width: 110px;">Ticket ID</th>
+                            <th style="width: 100px;">Ticket ID</th>
                             <th>Subject</th>
-                            <th style="width: 120px;">Priority</th>
-                            <th style="width: 130px;">Status</th>
-                            <th style="width: 160px;">Submitted On</th>
+                            <th style="width: 160px;">Department</th>
+                            <th style="width: 110px;">Priority</th>
+                            <th style="width: 120px;">Status</th>
+                            <th style="width: 150px;">Submitted On</th>
                         </tr>
                     </thead>
                     <tbody id="tickets-table-body">
-                        <tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 3rem;">Loading your tickets...</td></tr>
+                        <tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 3rem;">Loading your tickets...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -149,6 +150,18 @@
                 <button class="btn-close" id="btn-close-raise-modal">&times;</button>
             </div>
             <form id="raise-ticket-form">
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label for="ticket-department" class="form-label">Target Department *</label>
+                    <div class="input-wrapper">
+                        <select id="ticket-department" class="form-input" style="background-color: var(--bg-pitch-black); cursor: pointer;" required>
+                            <option value="">Loading departments...</option>
+                        </select>
+                    </div>
+                    <span style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem; display: block;">
+                        Select the department you need assistance from (e.g. IT, HR, Finance).
+                    </span>
+                </div>
+
                 <div class="form-group" style="margin-bottom: 1.25rem;">
                     <label for="ticket-title" class="form-label">Subject / Issue Title *</label>
                     <div class="input-wrapper">
@@ -189,11 +202,17 @@
     <div class="modal-overlay" id="modal-ticket-details">
         <div class="modal-box" style="max-width: 700px;">
             <div class="modal-header">
-                <div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                     <span id="detail-code" class="ticket-code-tag" style="font-size: 1.1rem;"></span>
-                    <span id="detail-status-badge" class="badge badge-open" style="margin-left: 0.5rem;"></span>
+                    <span id="detail-status-badge" class="badge badge-open"></span>
+                    <span id="detail-dept-badge" class="badge" style="background: rgba(255,255,255,0.08); color: var(--text-primary); border: 1px solid var(--border-color);"></span>
                 </div>
-                <button class="btn-close" id="btn-close-details-modal">&times;</button>
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                    <button id="btn-toggle-ticket-status" class="btn-secondary" style="font-size: 0.75rem; padding: 0.35rem 0.75rem;">
+                        Close Ticket
+                    </button>
+                    <button class="btn-close" id="btn-close-details-modal">&times;</button>
+                </div>
             </div>
             
             <div style="margin-bottom: 1.5rem;">
@@ -246,6 +265,7 @@
         const API_URL = (window.location.port !== '5000') ? 'http://127.0.0.1:5000' : window.location.origin;
         let currentUser = null;
         let allTickets = [];
+        let availableDepartments = [];
         let activeStatus = '';
         let activeTicket = null;
 
@@ -301,8 +321,9 @@
                 const data = await response.json();
                 currentUser = data.user;
 
-                // If user is Admin or Agent, show button to switch to tech dashboard
-                if (currentUser.role === 'admin' || currentUser.role === 'agent') {
+                // If user is Admin, Agent, or Tech Staff, show switch to dashboard
+                const staffRoles = ['super_admin', 'admin', 'tech_member', 'agent', 'dept_agent'];
+                if (staffRoles.includes(currentUser.role)) {
                     document.getElementById('admin-switch-btn').style.display = 'block';
                 }
 
@@ -325,7 +346,8 @@
                     .substring(0, 2);
                 document.getElementById('portal-user-avatar').textContent = initials || 'U';
 
-                // Load tickets and metrics
+                // Load departments, tickets and metrics
+                await loadDepartmentsForPortal();
                 await fetchMetrics();
                 await loadMyTickets();
 
@@ -333,6 +355,29 @@
                 console.error(err);
                 localStorage.removeItem('access_token');
                 window.location.href = 'index.html?expired=true';
+            }
+        }
+
+        // --- Fetch Departments for Employee (Restricted depts automatically filtered out) ---
+        async function loadDepartmentsForPortal() {
+            try {
+                const res = await fetch(`${API_URL}/api/departments`, { headers: authHeaders() });
+                if (!res.ok) return;
+                const data = await res.json();
+                availableDepartments = data.departments || [];
+
+                const selectEl = document.getElementById('ticket-department');
+                if (selectEl) {
+                    if (availableDepartments.length === 0) {
+                        selectEl.innerHTML = `<option value="">No departments available</option>`;
+                    } else {
+                        selectEl.innerHTML = availableDepartments.map(d => 
+                            `<option value="${d.id}">${escapeHtml(d.name)}</option>`
+                        ).join('');
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load departments:', err);
             }
         }
 
@@ -366,7 +411,7 @@
             } catch (err) {
                 console.error(err);
                 document.getElementById('tickets-table-body').innerHTML = `
-                    <tr><td colspan="5" style="text-align: center; color: var(--error-red); padding: 2.5rem;">Could not load tickets. Please try again.</td></tr>
+                    <tr><td colspan="6" style="text-align: center; color: var(--error-red); padding: 2.5rem;">Could not load tickets. Please try again.</td></tr>
                 `;
             }
         }
@@ -381,6 +426,7 @@
                 return (
                     (t.ticket_code && t.ticket_code.toLowerCase().includes(searchVal)) ||
                     (t.title && t.title.toLowerCase().includes(searchVal)) ||
+                    (t.department_name && t.department_name.toLowerCase().includes(searchVal)) ||
                     (t.description && t.description.toLowerCase().includes(searchVal))
                 );
             });
@@ -390,7 +436,7 @@
             if (filtered.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="5" style="text-align: center; color: var(--text-secondary); padding: 3rem;">
+                        <td colspan="6" style="text-align: center; color: var(--text-secondary); padding: 3rem;">
                             No support tickets found. Click <strong>"Raise a Ticket"</strong> above to submit a technical issue.
                         </td>
                     </tr>
@@ -409,6 +455,11 @@
                         <td>
                             <div class="ticket-title-link" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>
                             <div class="ticket-requester-info" style="color: var(--text-muted);">${escapeHtml(t.description.substring(0, 70))}${t.description.length > 70 ? '...' : ''}</div>
+                        </td>
+                        <td>
+                            <span class="badge" style="background: rgba(255,255,255,0.06); font-size: 0.75rem; color: var(--text-primary); border: 1px solid var(--border-color);">
+                                ${escapeHtml(t.department_name || 'Information Technology')}
+                            </span>
                         </td>
                         <td>
                             <span class="priority-tag priority-${t.priority}">
@@ -436,6 +487,25 @@
                 badge.className = `badge badge-${activeTicket.status}`;
                 badge.textContent = activeTicket.status.replace('_', ' ');
 
+                const deptBadge = document.getElementById('detail-dept-badge');
+                if (deptBadge) {
+                    deptBadge.textContent = activeTicket.department_name || 'General';
+                }
+
+                // Status Toggle button for Regular Employee (Close / Reopen ticket)
+                const toggleStatusBtn = document.getElementById('btn-toggle-ticket-status');
+                if (toggleStatusBtn) {
+                    if (activeTicket.status === 'closed') {
+                        toggleStatusBtn.innerHTML = `<span>Reopen Ticket</span>`;
+                        toggleStatusBtn.style.color = 'var(--accent-yellow)';
+                        toggleStatusBtn.onclick = () => toggleTicketStatus('open');
+                    } else {
+                        toggleStatusBtn.innerHTML = `<span>Close Ticket</span>`;
+                        toggleStatusBtn.style.color = 'var(--text-secondary)';
+                        toggleStatusBtn.onclick = () => toggleTicketStatus('closed');
+                    }
+                }
+
                 document.getElementById('detail-title').textContent = activeTicket.title;
                 document.getElementById('detail-priority').textContent = activeTicket.priority;
                 document.getElementById('detail-date').textContent = activeTicket.created_at ? new Date(activeTicket.created_at).toLocaleString() : '-';
@@ -453,23 +523,52 @@
             }
         };
 
+        // --- Employee Ticket Status Toggle (Close or Reopen) ---
+        async function toggleTicketStatus(newStatus) {
+            if (!activeTicket) return;
+            const btn = document.getElementById('btn-toggle-ticket-status');
+            try {
+                btn.disabled = true;
+                const res = await fetch(`${API_URL}/api/tickets/${activeTicket.id}`, {
+                    method: 'PATCH',
+                    headers: authHeaders(),
+                    body: JSON.stringify({ status: newStatus })
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || 'Failed to update ticket status');
+                }
+
+                showToast(`Ticket status changed to "${newStatus}".`, 'success');
+                await fetchMetrics();
+                await loadMyTickets();
+                await window.viewTicketDetails(activeTicket.id);
+
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
         function renderComments(comments) {
             const container = document.getElementById('detail-comments-container');
             const countBadge = document.getElementById('comment-count-badge');
             countBadge.textContent = `${comments.length} message${comments.length === 1 ? '' : 's'}`;
 
             if (comments.length === 0) {
-                container.innerHTML = `<p style="color: var(--text-muted); font-size: 0.85rem; font-style: italic;">No replies yet. A tech support team member will review your request shortly.</p>`;
+                container.innerHTML = `<p style="color: var(--text-muted); font-size: 0.85rem; font-style: italic;">No replies yet. A department support team member will review your request shortly.</p>`;
                 return;
             }
 
             container.innerHTML = comments.map(c => {
-                const isTech = c.author_role === 'admin' || c.author_role === 'agent';
-                const authorBadge = isTech ? `<span class="role-badge admin" style="font-size: 0.65rem; margin-left: 0.4rem;">Tech Support</span>` : '';
+                const isStaff = ['super_admin', 'admin', 'tech_member', 'agent', 'dept_agent'].includes(c.author_role);
+                const authorBadge = isStaff ? `<span class="role-badge admin" style="font-size: 0.65rem; margin-left: 0.4rem;">Support Staff</span>` : '';
                 const timeStr = c.created_at ? new Date(c.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
                 
                 return `
-                    <div class="comment-card" style="border-left: 3px solid ${isTech ? 'var(--accent-yellow)' : 'var(--border-color)'};">
+                    <div class="comment-card" style="border-left: 3px solid ${isStaff ? 'var(--accent-yellow)' : 'var(--border-color)'};">
                         <div class="comment-author">
                             <span>${escapeHtml(c.author_name || c.author_email)} ${authorBadge}</span>
                             <span style="color: var(--text-muted); font-size: 0.75rem;">${timeStr}</span>
@@ -484,6 +583,7 @@
         const raiseModal = document.getElementById('modal-raise-ticket');
         document.getElementById('btn-open-raise-ticket').addEventListener('click', () => {
             document.getElementById('raise-ticket-form').reset();
+            loadDepartmentsForPortal();
             raiseModal.classList.add('active');
             document.getElementById('ticket-title').focus();
         });
@@ -499,11 +599,13 @@
         // --- Submit New Ticket ---
         document.getElementById('raise-ticket-form').addEventListener('submit', async (e) => {
             e.preventDefault();
+            const deptInput = document.getElementById('ticket-department');
             const titleInput = document.getElementById('ticket-title');
             const priorityInput = document.getElementById('ticket-priority');
             const descInput = document.getElementById('ticket-description');
             const btnSubmit = document.getElementById('btn-submit-ticket');
 
+            const deptId = deptInput ? parseInt(deptInput.value) : null;
             const title = titleInput.value.trim();
             const priority = priorityInput.value;
             const description = descInput.value.trim();
@@ -521,6 +623,7 @@
                     method: 'POST',
                     headers: authHeaders(),
                     body: JSON.stringify({
+                        department_id: deptId,
                         title: title,
                         description: description,
                         priority: priority
@@ -568,7 +671,7 @@
 
                 if (!res.ok) throw new Error('Failed to send reply');
                 textarea.value = '';
-                showToast('Reply sent to tech support.', 'success');
+                showToast('Reply sent to support team.', 'success');
 
                 // Re-fetch details to show updated conversation
                 window.viewTicketDetails(activeTicket.id);

@@ -54,17 +54,30 @@ class RegisterRequest(BaseModel):
     full_name: str = Field(..., min_length=1, max_length=100)
     department: str | None = Field(default="General", max_length=100)
     position: str | None = Field(default="Employee", max_length=100)
-    role: str = Field(default="customer")
-    tech_passcode: str | None = Field(default=None)
+    role: str | None = Field(default="employee")
 
 class LoginRequest(BaseModel):
     email: str
     password: str
 
+class UserRoleUpdateRequest(BaseModel):
+    role: str = Field(..., description="Role: super_admin, tech_member, dept_agent, employee")
+    can_manage_departments: bool | None = None
+
+class DepartmentCreateRequest(BaseModel):
+    name: str = Field(..., min_length=2, max_length=100)
+    description: str = Field(default="")
+
+class DepartmentRestrictionRequest(BaseModel):
+    user_id: int
+    reason: str | None = Field(default="Restricted by manager")
+
 class TicketCreateRequest(BaseModel):
     title: str = Field(..., min_length=3, max_length=255)
     description: str = Field(default="")
     priority: str = Field(default="medium")
+    department_id: int | None = None
+    department_name: str | None = None
     requester_email: str | None = None
     requester_name: str | None = None
 
@@ -72,6 +85,7 @@ class TicketUpdateRequest(BaseModel):
     status: str | None = None
     priority: str | None = None
     assigned_to: int | None = None
+    department_id: int | None = None
 
 class CommentCreateRequest(BaseModel):
     comment_text: str = Field(..., min_length=1)
@@ -97,10 +111,16 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             detail="Invalid access token payload.",
         )
     
-    # Query database to get latest user details
     try:
         with get_db_cursor(commit=False) as cur:
-            cur.execute("SELECT id, email, full_name, role, department, position, created_at FROM ticketing_system.users WHERE id = %s;", (user_id,))
+            cur.execute(
+                """
+                SELECT id, email, full_name, role, department, position, can_manage_departments, created_at 
+                FROM ticketing_system.users 
+                WHERE id = %s;
+                """, 
+                (user_id,)
+            )
             user = cur.fetchone()
     except Exception as e:
         logger.error(f"Database error during token validation: {e}")
@@ -115,17 +135,30 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             detail="User account no longer exists.",
         )
         
-    # Format datetimes to ISO format for JSON compatibility
     if user.get("created_at"):
         user["created_at"] = user["created_at"].isoformat()
         
     return user
 
-def require_admin(current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") != "admin":
+def is_super_admin(role: str) -> bool:
+    return role in ("super_admin", "admin")
+
+def is_tech_or_agent(role: str) -> bool:
+    return role in ("super_admin", "admin", "tech_member", "agent", "dept_agent")
+
+def require_super_admin(current_user: dict = Depends(get_current_user)):
+    if not is_super_admin(current_user.get("role", "")):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Administrator access required for this action."
+            detail="Super Admin / Tech Manager access required for this action."
+        )
+    return current_user
+
+def require_tech_access(current_user: dict = Depends(get_current_user)):
+    if not is_tech_or_agent(current_user.get("role", "")):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Staff access required (Super Admin, Tech Member, or Department Agent)."
         )
     return current_user
 
@@ -135,20 +168,7 @@ def generate_ticket_code(cur) -> str:
     next_id = (res["max_id"] or 0) + 1
     return f"KT-{1000 + next_id}"
 
-class VerifyPasscodeRequest(BaseModel):
-    passcode: str = Field(..., min_length=1)
-
 # --- Auth Routes ---
-
-@app.post("/api/auth/verify-passcode")
-def verify_tech_passcode(req: VerifyPasscodeRequest):
-    cleaned_passcode = req.passcode.strip()
-    if cleaned_passcode == TECH_ACCESS_KEY:
-        return {"valid": True, "message": "Tech Security Passcode verified successfully."}
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Invalid Tech Security Passcode. Access denied."
-    )
 
 @app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
 def register(req: RegisterRequest):
@@ -156,8 +176,7 @@ def register(req: RegisterRequest):
     full_name = req.full_name.strip()
     department = (req.department or "General").strip()
     position = (req.position or "Employee").strip()
-    requested_role = req.role.strip().lower() if req.role else "customer"
-    tech_passcode = (req.tech_passcode or "").strip()
+    raw_role = (req.role or "employee").strip().lower()
 
     if "@" not in email:
         raise HTTPException(
@@ -171,43 +190,19 @@ def register(req: RegisterRequest):
             detail="Password must be at least 6 characters long."
         )
 
-    # Keyword analysis for Department and Position
-    dept_lower = department.lower()
-    pos_lower = position.lower()
-
-    tech_keywords = [
-        "tech", "it", "information technology", "developer", "engineer", "sysadmin", 
-        "devops", "systems", "network", "software", "infrastructure", "support", "helpdesk"
-    ]
-    lead_keywords = [
-        "manager", "lead", "head", "director", "supervisor", "chief", "cto", "cio", "vp"
-    ]
-
-    is_tech_dept = any(kw in dept_lower for kw in tech_keywords)
-    is_tech_pos = any(kw in pos_lower for kw in tech_keywords)
-    is_lead_pos = any(kw in pos_lower for kw in lead_keywords)
-    claims_tech_role = requested_role in ("admin", "agent", "operator")
-
-    # Determine final role with validation and fixed passcode enforcement
-    if claims_tech_role or tech_passcode:
-        # User is requesting tech team / admin status or provided a tech passcode
-        if not tech_passcode or tech_passcode != TECH_ACCESS_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid or missing Tech Department passcode. Only authorized tech personnel with the security key can register for Tech Team access."
-            )
-
-        # Passcode is valid! Check if non-tech department trying to claim tech role
-        non_tech_depts = ["hr", "human resources", "finance", "accounting", "sales", "marketing", "legal"]
-        if any(nt in dept_lower for nt in non_tech_depts) and not is_tech_pos:
-            final_role = "customer"
-        elif requested_role == "admin" or (is_lead_pos and requested_role != "agent"):
-            final_role = "admin"
-        else:
-            final_role = "agent"
+    # Normalize role cleanly without secret passcode barriers
+    if raw_role in ("super_admin", "admin"):
+        final_role = "super_admin"
+        can_manage_depts = True
+    elif raw_role in ("tech_member", "agent"):
+        final_role = "tech_member"
+        can_manage_depts = False
+    elif raw_role in ("dept_agent", "department_agent"):
+        final_role = "dept_agent"
+        can_manage_depts = False
     else:
-        # Regular corporate employee / requester without tech role or passcode
-        final_role = "customer"
+        final_role = "employee"
+        can_manage_depts = False
 
     pwd_hash = hash_password(req.password)
 
@@ -222,13 +217,16 @@ def register(req: RegisterRequest):
 
             cur.execute(
                 """
-                INSERT INTO ticketing_system.users (email, password_hash, full_name, role, department, position) 
-                VALUES (%s, %s, %s, %s, %s, %s) 
-                RETURNING id, email, full_name, role, department, position;
+                INSERT INTO ticketing_system.users 
+                (email, password_hash, full_name, role, department, position, can_manage_departments) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s) 
+                RETURNING id, email, full_name, role, department, position, can_manage_departments, created_at;
                 """,
-                (email, pwd_hash, full_name, final_role, department, position)
+                (email, pwd_hash, full_name, final_role, department, position, can_manage_depts)
             )
             new_user = cur.fetchone()
+            if new_user.get("created_at"):
+                new_user["created_at"] = new_user["created_at"].isoformat()
 
             # Generate access token immediately for auto-login
             token_data = {"sub": str(new_user["id"]), "email": new_user["email"], "role": final_role}
@@ -270,17 +268,26 @@ def login(req: LoginRequest):
             detail="Invalid email or password."
         )
 
-    # Generate access token
-    token_data = {"sub": str(user["id"]), "email": user["email"], "role": user["role"]}
+    # Normalize legacy roles for active token session
+    user_role = user["role"]
+    if user_role == "admin":
+        user_role = "super_admin"
+    elif user_role == "agent":
+        user_role = "tech_member"
+    elif user_role in ("customer", "user"):
+        user_role = "employee"
+
+    token_data = {"sub": str(user["id"]), "email": user["email"], "role": user_role}
     access_token = create_access_token(data=token_data)
 
     user_data = {
         "id": user["id"],
         "email": user["email"],
         "full_name": user["full_name"],
-        "role": user["role"],
+        "role": user_role,
         "department": user.get("department", "General"),
         "position": user.get("position", "Employee"),
+        "can_manage_departments": bool(user.get("can_manage_departments", False)),
         "created_at": user["created_at"].isoformat() if user.get("created_at") else None
     }
 
@@ -296,18 +303,276 @@ def get_me(current_user: dict = Depends(get_current_user)):
         "user": current_user
     }
 
+# --- Users & Hierarchy Management Endpoints (Super Admin / Manager Only) ---
+
+@app.get("/api/users")
+def list_users(current_user: dict = Depends(require_super_admin)):
+    """Returns all users for Super Admin hierarchy and permission management."""
+    try:
+        with get_db_cursor(commit=False) as cur:
+            cur.execute(
+                """
+                SELECT id, email, full_name, role, department, position, can_manage_departments, created_at 
+                FROM ticketing_system.users 
+                ORDER BY id ASC;
+                """
+            )
+            users = cur.fetchall()
+            for u in users:
+                if u.get("created_at"):
+                    u["created_at"] = u["created_at"].isoformat()
+            return {"users": users}
+    except Exception as e:
+        logger.error(f"Failed to list users: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list users.")
+
+@app.patch("/api/users/{user_id}/role")
+def update_user_role(
+    user_id: int, 
+    req: UserRoleUpdateRequest, 
+    current_user: dict = Depends(require_super_admin)
+):
+    """
+    Allows Super Admin / Manager to update hierarchy, promote tech members to super_admin,
+    or adjust department management access.
+    """
+    valid_roles = ("super_admin", "tech_member", "dept_agent", "employee", "admin", "agent", "customer")
+    target_role = req.role.strip().lower()
+    if target_role not in valid_roles:
+        raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {valid_roles}")
+
+    if target_role == "admin":
+        target_role = "super_admin"
+    elif target_role == "agent":
+        target_role = "tech_member"
+    elif target_role == "customer":
+        target_role = "employee"
+
+    try:
+        with get_db_cursor(commit=True) as cur:
+            cur.execute("SELECT id, email, role, can_manage_departments FROM ticketing_system.users WHERE id = %s;", (user_id,))
+            target = cur.fetchone()
+            if not target:
+                raise HTTPException(status_code=404, detail="User not found.")
+
+            can_manage = req.can_manage_departments
+            if target_role == "super_admin":
+                can_manage = True
+            elif can_manage is None:
+                can_manage = target.get("can_manage_departments", False)
+
+            cur.execute(
+                """
+                UPDATE ticketing_system.users 
+                SET role = %s, can_manage_departments = %s 
+                WHERE id = %s 
+                RETURNING id, email, full_name, role, department, position, can_manage_departments, created_at;
+                """,
+                (target_role, can_manage, user_id)
+            )
+            updated_user = cur.fetchone()
+            if updated_user.get("created_at"):
+                updated_user["created_at"] = updated_user["created_at"].isoformat()
+            return {"message": "User hierarchy updated successfully", "user": updated_user}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update user role: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update user role.")
+
+# --- Department Management Endpoints ---
+
+@app.get("/api/departments")
+def list_departments(current_user: dict = Depends(get_current_user)):
+    """
+    Returns list of departments.
+    - Regular employees only see departments they have NOT been restricted from.
+    - Tech and super admins see all departments with ticket counts.
+    """
+    user_role = current_user.get("role", "employee")
+    user_id = current_user["id"]
+
+    try:
+        with get_db_cursor(commit=False) as cur:
+            if not is_tech_or_agent(user_role):
+                cur.execute(
+                    """
+                    SELECT d.id, d.name, d.description, d.is_active, d.created_at
+                    FROM ticketing_system.departments d
+                    WHERE d.is_active = TRUE
+                      AND d.id NOT IN (
+                          SELECT department_id FROM ticketing_system.department_restrictions WHERE user_id = %s
+                      )
+                    ORDER BY d.name ASC;
+                    """,
+                    (user_id,)
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT 
+                        d.id, d.name, d.description, d.is_active, d.created_at,
+                        COUNT(DISTINCT t.id) as ticket_count,
+                        COUNT(DISTINCT r.id) as restricted_count
+                    FROM ticketing_system.departments d
+                    LEFT JOIN ticketing_system.tickets t ON d.id = t.department_id
+                    LEFT JOIN ticketing_system.department_restrictions r ON d.id = r.department_id
+                    GROUP BY d.id
+                    ORDER BY d.name ASC;
+                    """
+                )
+            depts = cur.fetchall()
+            for d in depts:
+                if d.get("created_at"):
+                    d["created_at"] = d["created_at"].isoformat()
+            return {"departments": depts}
+    except Exception as e:
+        logger.error(f"Failed to list departments: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list departments.")
+
+@app.post("/api/departments", status_code=status.HTTP_201_CREATED)
+def create_department(req: DepartmentCreateRequest, current_user: dict = Depends(get_current_user)):
+    """
+    Creates a new department.
+    Allowed for: Super Admin / Tech Manager, OR tech members with can_manage_departments = True.
+    """
+    user_role = current_user.get("role", "employee")
+    can_manage = current_user.get("can_manage_departments", False)
+
+    if not (is_super_admin(user_role) or can_manage):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Permission denied. Only Super Admin or authorized Tech Members can add departments."
+        )
+
+    dept_name = req.name.strip()
+    if not dept_name:
+        raise HTTPException(status_code=400, detail="Department name cannot be empty.")
+
+    try:
+        with get_db_cursor(commit=True) as cur:
+            cur.execute("SELECT id FROM ticketing_system.departments WHERE lower(name) = lower(%s);", (dept_name,))
+            if cur.fetchone():
+                raise HTTPException(status_code=400, detail="A department with this name already exists.")
+
+            cur.execute(
+                """
+                INSERT INTO ticketing_system.departments (name, description)
+                VALUES (%s, %s)
+                RETURNING id, name, description, is_active, created_at;
+                """,
+                (dept_name, req.description.strip())
+            )
+            dept = cur.fetchone()
+            if dept.get("created_at"):
+                dept["created_at"] = dept["created_at"].isoformat()
+            return {"message": "Department created successfully", "department": dept}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create department: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create department.")
+
+@app.get("/api/departments/{dept_id}/restrictions")
+def get_department_restrictions(dept_id: int, current_user: dict = Depends(require_super_admin)):
+    """Super Admin: get all users restricted from raising tickets to this department."""
+    try:
+        with get_db_cursor(commit=False) as cur:
+            cur.execute(
+                """
+                SELECT 
+                    r.id, r.user_id, r.department_id, r.reason, r.created_at,
+                    u.full_name, u.email, u.department as user_department, u.position
+                FROM ticketing_system.department_restrictions r
+                JOIN ticketing_system.users u ON r.user_id = u.id
+                WHERE r.department_id = %s
+                ORDER BY r.created_at DESC;
+                """,
+                (dept_id,)
+            )
+            restrictions = cur.fetchall()
+            for r in restrictions:
+                if r.get("created_at"):
+                    r["created_at"] = r["created_at"].isoformat()
+            return {"restrictions": restrictions}
+    except Exception as e:
+        logger.error(f"Failed to fetch restrictions: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch department restrictions.")
+
+@app.post("/api/departments/{dept_id}/restrictions")
+def add_department_restriction(
+    dept_id: int, 
+    req: DepartmentRestrictionRequest, 
+    current_user: dict = Depends(require_super_admin)
+):
+    """Super Admin: restrict a user from raising tickets to this department."""
+    try:
+        with get_db_cursor(commit=True) as cur:
+            cur.execute("SELECT id FROM ticketing_system.departments WHERE id = %s;", (dept_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Department not found.")
+
+            cur.execute("SELECT id FROM ticketing_system.users WHERE id = %s;", (req.user_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="User not found.")
+
+            cur.execute(
+                """
+                INSERT INTO ticketing_system.department_restrictions (user_id, department_id, restricted_by, reason)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (user_id, department_id) DO UPDATE SET reason = EXCLUDED.reason
+                RETURNING id, user_id, department_id, reason, created_at;
+                """,
+                (req.user_id, dept_id, current_user["id"], req.reason or "Restricted by manager")
+            )
+            record = cur.fetchone()
+            if record.get("created_at"):
+                record["created_at"] = record["created_at"].isoformat()
+            return {"message": "User restricted successfully from department", "restriction": record}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to restrict user: {e}")
+        raise HTTPException(status_code=500, detail="Failed to restrict user.")
+
+@app.delete("/api/departments/{dept_id}/restrictions/{user_id}")
+def remove_department_restriction(dept_id: int, user_id: int, current_user: dict = Depends(require_super_admin)):
+    """Super Admin: unrestrict a user from raising tickets to this department."""
+    try:
+        with get_db_cursor(commit=True) as cur:
+            cur.execute(
+                "DELETE FROM ticketing_system.department_restrictions WHERE department_id = %s AND user_id = %s RETURNING id;",
+                (dept_id, user_id)
+            )
+            deleted = cur.fetchone()
+            if not deleted:
+                raise HTTPException(status_code=404, detail="Restriction record not found.")
+            return {"message": "Restriction lifted successfully."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to remove restriction: {e}")
+        raise HTTPException(status_code=500, detail="Failed to remove restriction.")
+
 # --- Team Members Endpoint ---
 
 @app.get("/api/team")
 def get_team_members(current_user: dict = Depends(get_current_user)):
-    """Returns list of tech team members for ticket assignment."""
-    user_role = current_user.get("role", "customer")
-    if user_role in ("customer", "user"):
-        raise HTTPException(status_code=403, detail="Requesters cannot view internal team members.")
+    """Returns list of tech/admin members for ticket assignment (Super Admin assigns)."""
+    user_role = current_user.get("role", "employee")
+    if not is_tech_or_agent(user_role):
+        raise HTTPException(status_code=403, detail="Employees cannot view internal team members.")
 
     try:
         with get_db_cursor(commit=False) as cur:
-            cur.execute("SELECT id, email, full_name, role, department, position, created_at FROM ticketing_system.users WHERE role IN ('admin', 'agent') ORDER BY full_name ASC;")
+            cur.execute(
+                """
+                SELECT id, email, full_name, role, department, position, can_manage_departments, created_at 
+                FROM ticketing_system.users 
+                WHERE role IN ('super_admin', 'admin', 'tech_member', 'agent', 'dept_agent') 
+                ORDER BY full_name ASC;
+                """
+            )
             members = cur.fetchall()
             for m in members:
                 if m.get("created_at"):
@@ -323,35 +588,29 @@ def get_team_members(current_user: dict = Depends(get_current_user)):
 def list_tickets(
     status_filter: str | None = None,
     priority_filter: str | None = None,
+    dept_filter: int | None = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """
-    List tickets.
-    - Admins see all tickets.
-    - Tech operators ('agent') see tickets assigned to them or unassigned.
-    - Customers ('customer') see ONLY their own tickets.
-    """
     query = """
         SELECT 
             t.id, t.ticket_code, t.title, t.description, t.requester_email, 
-            t.requester_name, t.requester_id, t.source, t.status, t.priority, t.assigned_to,
+            t.requester_name, t.requester_id, t.department_id, t.department_name,
+            t.source, t.status, t.priority, t.assigned_to,
             t.created_at, t.updated_at,
-            u.full_name AS assignee_name, u.email AS assignee_email
+            u.full_name AS assignee_name, u.email AS assignee_email,
+            d.name as resolved_dept_name
         FROM ticketing_system.tickets t
         LEFT JOIN ticketing_system.users u ON t.assigned_to = u.id
+        LEFT JOIN ticketing_system.departments d ON t.department_id = d.id
         WHERE 1=1
     """
     params = []
+    user_role = current_user.get("role", "employee")
 
-    user_role = current_user.get("role", "customer")
-
-    if user_role in ("customer", "user"):
-        query += " AND (t.requester_id = %s OR t.requester_email = %s)"
+    if not is_tech_or_agent(user_role):
+        # Regular employee: ONLY see tickets they raised!
+        query += " AND (t.requester_id = %s OR lower(t.requester_email) = lower(%s))"
         params.extend([current_user["id"], current_user["email"]])
-    elif user_role in ("agent", "operator"):
-        query += " AND (t.assigned_to = %s OR t.assigned_to IS NULL)"
-        params.append(current_user["id"])
-    # Admins see all
 
     if status_filter:
         query += " AND t.status = %s"
@@ -360,6 +619,10 @@ def list_tickets(
     if priority_filter:
         query += " AND t.priority = %s"
         params.append(priority_filter.lower())
+
+    if dept_filter:
+        query += " AND t.department_id = %s"
+        params.append(dept_filter)
 
     query += " ORDER BY t.created_at DESC;"
 
@@ -372,6 +635,8 @@ def list_tickets(
                     item["created_at"] = item["created_at"].isoformat()
                 if item.get("updated_at"):
                     item["updated_at"] = item["updated_at"].isoformat()
+                if item.get("resolved_dept_name"):
+                    item["department_name"] = item["resolved_dept_name"]
             return {"tickets": tickets}
     except Exception as e:
         logger.error(f"Error fetching tickets: {e}")
@@ -379,10 +644,9 @@ def list_tickets(
 
 @app.post("/api/tickets", status_code=status.HTTP_201_CREATED)
 def create_ticket(req: TicketCreateRequest, current_user: dict = Depends(get_current_user)):
-    """Creates a new ticket (used by Customers to raise technical requests)."""
-    user_role = current_user.get("role", "customer")
+    user_role = current_user.get("role", "employee")
     
-    if user_role in ("customer", "user"):
+    if not is_tech_or_agent(user_role):
         requester_email = current_user["email"]
         requester_name = current_user["full_name"]
         requester_id = current_user["id"]
@@ -391,15 +655,51 @@ def create_ticket(req: TicketCreateRequest, current_user: dict = Depends(get_cur
         requester_name = (req.requester_name or current_user["full_name"]).strip()
         requester_id = current_user["id"]
 
+    dept_id = req.department_id
+    dept_name = (req.department_name or "Information Technology").strip()
+
     try:
         with get_db_cursor(commit=True) as cur:
+            if dept_id:
+                cur.execute("SELECT id, name FROM ticketing_system.departments WHERE id = %s AND is_active = TRUE;", (dept_id,))
+                drow = cur.fetchone()
+                if not drow:
+                    raise HTTPException(status_code=400, detail="Selected department is invalid or inactive.")
+                dept_name = drow["name"]
+
+                cur.execute(
+                    "SELECT reason FROM ticketing_system.department_restrictions WHERE user_id = %s AND department_id = %s;",
+                    (current_user["id"], dept_id)
+                )
+                restriction = cur.fetchone()
+                if restriction:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"You are restricted from raising tickets to {dept_name}. Reason: {restriction.get('reason', 'Contact Manager')}"
+                    )
+            else:
+                cur.execute("SELECT id, name FROM ticketing_system.departments WHERE lower(name) = lower(%s);", (dept_name,))
+                drow = cur.fetchone()
+                if drow:
+                    dept_id = drow["id"]
+                    dept_name = drow["name"]
+                    cur.execute(
+                        "SELECT reason FROM ticketing_system.department_restrictions WHERE user_id = %s AND department_id = %s;",
+                        (current_user["id"], dept_id)
+                    )
+                    if cur.fetchone():
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail=f"You are restricted from raising tickets to {dept_name}."
+                        )
+
             ticket_code = generate_ticket_code(cur)
             cur.execute(
                 """
                 INSERT INTO ticketing_system.tickets 
-                (ticket_code, title, description, requester_email, requester_name, requester_id, source, priority, status)
-                VALUES (%s, %s, %s, %s, %s, %s, 'portal', %s, 'open')
-                RETURNING id, ticket_code, title, description, requester_email, requester_name, requester_id, source, priority, status, created_at;
+                (ticket_code, title, description, requester_email, requester_name, requester_id, department_id, department_name, source, priority, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'portal', %s, 'open')
+                RETURNING id, ticket_code, title, description, requester_email, requester_name, requester_id, department_id, department_name, source, priority, status, created_at;
                 """,
                 (
                     ticket_code,
@@ -408,6 +708,8 @@ def create_ticket(req: TicketCreateRequest, current_user: dict = Depends(get_cur
                     requester_email,
                     requester_name,
                     requester_id,
+                    dept_id,
+                    dept_name,
                     req.priority.lower()
                 )
             )
@@ -415,24 +717,28 @@ def create_ticket(req: TicketCreateRequest, current_user: dict = Depends(get_cur
             if ticket.get("created_at"):
                 ticket["created_at"] = ticket["created_at"].isoformat()
             return {"message": "Ticket raised successfully", "ticket": ticket}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error creating ticket: {e}")
         raise HTTPException(status_code=500, detail="Failed to create ticket.")
 
 @app.get("/api/tickets/{ticket_id}")
 def get_ticket_details(ticket_id: int, current_user: dict = Depends(get_current_user)):
-    """Fetches ticket details and its comments thread (filters out internal notes for customers)."""
     try:
         with get_db_cursor(commit=False) as cur:
             cur.execute(
                 """
                 SELECT 
                     t.id, t.ticket_code, t.title, t.description, t.requester_email, 
-                    t.requester_name, t.requester_id, t.source, t.status, t.priority, t.assigned_to,
+                    t.requester_name, t.requester_id, t.department_id, t.department_name,
+                    t.source, t.status, t.priority, t.assigned_to,
                     t.created_at, t.updated_at,
-                    u.full_name AS assignee_name, u.email AS assignee_email
+                    u.full_name AS assignee_name, u.email AS assignee_email,
+                    d.name as resolved_dept_name
                 FROM ticketing_system.tickets t
                 LEFT JOIN ticketing_system.users u ON t.assigned_to = u.id
+                LEFT JOIN ticketing_system.departments d ON t.department_id = d.id
                 WHERE t.id = %s;
                 """,
                 (ticket_id,)
@@ -441,23 +747,22 @@ def get_ticket_details(ticket_id: int, current_user: dict = Depends(get_current_
             if not ticket:
                 raise HTTPException(status_code=404, detail="Ticket not found.")
             
-            user_role = current_user.get("role", "customer")
+            user_role = current_user.get("role", "employee")
 
             # Check permissions
-            if user_role in ("customer", "user"):
+            if not is_tech_or_agent(user_role):
                 if ticket.get("requester_id") != current_user["id"] and ticket.get("requester_email") != current_user["email"]:
                     raise HTTPException(status_code=403, detail="You can only view your own tickets.")
-            elif user_role in ("agent", "operator"):
-                if ticket["assigned_to"] is not None and ticket["assigned_to"] != current_user["id"]:
-                    raise HTTPException(status_code=403, detail="Not authorized to view this ticket.")
 
             if ticket.get("created_at"):
                 ticket["created_at"] = ticket["created_at"].isoformat()
             if ticket.get("updated_at"):
                 ticket["updated_at"] = ticket["updated_at"].isoformat()
+            if ticket.get("resolved_dept_name"):
+                ticket["department_name"] = ticket["resolved_dept_name"]
 
-            # For customers, hide internal tech notes!
-            internal_filter = "AND c.is_internal = FALSE" if user_role in ("customer", "user") else ""
+            # For employees, hide internal tech notes!
+            internal_filter = "AND c.is_internal = FALSE" if not is_tech_or_agent(user_role) else ""
 
             cur.execute(
                 f"""
@@ -490,14 +795,8 @@ def update_ticket(
     req: TicketUpdateRequest, 
     current_user: dict = Depends(get_current_user)
 ):
-    """
-    Update ticket status, priority, or assignee.
-    - Tech member can update status.
-    - Admin can update status, priority, and assigned_to.
-    """
-    user_role = current_user.get("role", "customer")
-    if user_role in ("customer", "user"):
-        raise HTTPException(status_code=403, detail="Requesters cannot reassign or change internal ticket properties.")
+    user_role = current_user.get("role", "employee")
+    user_id = current_user["id"]
 
     try:
         with get_db_cursor(commit=True) as cur:
@@ -506,29 +805,63 @@ def update_ticket(
             if not ticket:
                 raise HTTPException(status_code=404, detail="Ticket not found.")
 
-            is_admin = user_role == "admin"
-            is_assignee = ticket["assigned_to"] == current_user["id"]
-
-            if not is_admin and not is_assignee and ticket["assigned_to"] is not None:
-                raise HTTPException(status_code=403, detail="You do not have permission to modify this ticket.")
-
             updates = []
             params = []
 
-            if req.status:
-                valid_statuses = ("open", "in_progress", "resolved", "closed")
-                if req.status.lower() in valid_statuses:
-                    updates.append("status = %s")
-                    params.append(req.status.lower())
+            # 1. Regular Employees: Can ONLY close or open their own tickets!
+            if not is_tech_or_agent(user_role):
+                if ticket.get("requester_id") != user_id and ticket.get("requester_email") != current_user["email"]:
+                    raise HTTPException(status_code=403, detail="You can only manage your own tickets.")
 
-            # Only admin can reassign or change priority
-            if is_admin:
+                if req.assigned_to is not None or req.priority is not None or req.department_id is not None:
+                    raise HTTPException(status_code=403, detail="Employees can only close or reopen their tickets.")
+
+                if req.status:
+                    stat = req.status.lower()
+                    if stat in ("open", "closed"):
+                        updates.append("status = %s")
+                        params.append(stat)
+                    else:
+                        raise HTTPException(status_code=400, detail="Employees can only set status to 'open' or 'closed'.")
+
+            # 2. Tech Team Members & Department Agents: Cannot assign tickets!
+            elif not is_super_admin(user_role):
+                if req.assigned_to is not None:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Tech team members cannot assign tickets. Only the Tech Manager / Super Admin can assign tickets."
+                    )
+
+                if req.status:
+                    valid_statuses = ("open", "in_progress", "resolved", "closed")
+                    if req.status.lower() in valid_statuses:
+                        updates.append("status = %s")
+                        params.append(req.status.lower())
+
                 if req.priority:
                     valid_priorities = ("low", "medium", "high", "urgent")
                     if req.priority.lower() in valid_priorities:
                         updates.append("priority = %s")
                         params.append(req.priority.lower())
-                
+
+                if req.department_id is not None:
+                    updates.append("department_id = %s")
+                    params.append(req.department_id)
+
+            # 3. Super Admin / Manager: Full access including assigning tickets!
+            else:
+                if req.status:
+                    valid_statuses = ("open", "in_progress", "resolved", "closed")
+                    if req.status.lower() in valid_statuses:
+                        updates.append("status = %s")
+                        params.append(req.status.lower())
+
+                if req.priority:
+                    valid_priorities = ("low", "medium", "high", "urgent")
+                    if req.priority.lower() in valid_priorities:
+                        updates.append("priority = %s")
+                        params.append(req.priority.lower())
+
                 if req.assigned_to is not None:
                     if req.assigned_to == 0:
                         updates.append("assigned_to = NULL")
@@ -538,14 +871,26 @@ def update_ticket(
                             updates.append("assigned_to = %s")
                             params.append(req.assigned_to)
 
+                if req.department_id is not None:
+                    updates.append("department_id = %s")
+                    params.append(req.department_id)
+
             if not updates:
-                return {"message": "No valid updates provided."}
+                return {"message": "No updates applied."}
 
             updates.append("updated_at = CURRENT_TIMESTAMP")
             params.append(ticket_id)
 
             set_clause = ", ".join(updates)
-            cur.execute(f"UPDATE ticketing_system.tickets SET {set_clause} WHERE id = %s RETURNING id, ticket_code, status, priority, assigned_to, updated_at;", tuple(params))
+            cur.execute(
+                f"""
+                UPDATE ticketing_system.tickets 
+                SET {set_clause} 
+                WHERE id = %s 
+                RETURNING id, ticket_code, status, priority, assigned_to, department_id, department_name, updated_at;
+                """, 
+                tuple(params)
+            )
             updated_ticket = cur.fetchone()
             if updated_ticket.get("updated_at"):
                 updated_ticket["updated_at"] = updated_ticket["updated_at"].isoformat()
@@ -557,14 +902,21 @@ def update_ticket(
         logger.error(f"Error updating ticket {ticket_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to update ticket.")
 
+@app.delete("/api/tickets/{ticket_id}")
+def delete_ticket(ticket_id: int, current_user: dict = Depends(get_current_user)):
+    """Enforces transparency: tickets cannot be deleted by employees or agents."""
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Tickets cannot be deleted. History remains preserved for transparency and audit trails."
+    )
+
 @app.post("/api/tickets/{ticket_id}/comments", status_code=status.HTTP_201_CREATED)
 def add_comment(
     ticket_id: int, 
     req: CommentCreateRequest, 
     current_user: dict = Depends(get_current_user)
 ):
-    """Add a response or note to a ticket."""
-    user_role = current_user.get("role", "customer")
+    user_role = current_user.get("role", "employee")
     
     try:
         with get_db_cursor(commit=True) as cur:
@@ -573,8 +925,7 @@ def add_comment(
             if not ticket:
                 raise HTTPException(status_code=404, detail="Ticket not found.")
 
-            # If customer, verify ownership and ensure comment is public (not internal)
-            if user_role in ("customer", "user"):
+            if not is_tech_or_agent(user_role):
                 if ticket.get("requester_id") != current_user["id"] and ticket.get("requester_email") != current_user["email"]:
                     raise HTTPException(status_code=403, detail="You can only comment on your own tickets.")
                 is_internal = False
@@ -605,12 +956,11 @@ def add_comment(
 
 @app.get("/api/dashboard/stats")
 def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
-    """Computes live stats tailored to the user's role."""
     try:
         with get_db_cursor(commit=False) as cur:
-            user_role = current_user.get("role", "customer")
+            user_role = current_user.get("role", "employee")
             
-            if user_role == "admin":
+            if is_super_admin(user_role):
                 cur.execute("SELECT COUNT(*) as total FROM ticketing_system.tickets;")
                 total = cur.fetchone()["total"]
                 cur.execute("SELECT COUNT(*) as open FROM ticketing_system.tickets WHERE status = 'open';")
@@ -621,33 +971,36 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
                 resolved = cur.fetchone()["resolved"]
                 cur.execute("SELECT COUNT(*) as unassigned FROM ticketing_system.tickets WHERE assigned_to IS NULL;")
                 unassigned = cur.fetchone()["unassigned"]
-            elif user_role in ("agent", "operator"):
+            elif is_tech_or_agent(user_role):
                 user_id = current_user["id"]
-                cur.execute("SELECT COUNT(*) as total FROM ticketing_system.tickets WHERE assigned_to = %s OR assigned_to IS NULL;", (user_id,))
+                cur.execute("SELECT COUNT(*) as total FROM ticketing_system.tickets;")
                 total = cur.fetchone()["total"]
-                cur.execute("SELECT COUNT(*) as open FROM ticketing_system.tickets WHERE status = 'open' AND (assigned_to = %s OR assigned_to IS NULL);", (user_id,))
+                cur.execute("SELECT COUNT(*) as open FROM ticketing_system.tickets WHERE status = 'open';")
                 open_count = cur.fetchone()["open"]
-                cur.execute("SELECT COUNT(*) as in_progress FROM ticketing_system.tickets WHERE status = 'in_progress' AND assigned_to = %s;", (user_id,))
+                cur.execute("SELECT COUNT(*) as in_progress FROM ticketing_system.tickets WHERE status = 'in_progress';")
                 in_progress = cur.fetchone()["in_progress"]
-                cur.execute("SELECT COUNT(*) as resolved FROM ticketing_system.tickets WHERE status IN ('resolved', 'closed') AND assigned_to = %s;", (user_id,))
+                cur.execute("SELECT COUNT(*) as resolved FROM ticketing_system.tickets WHERE status IN ('resolved', 'closed');")
                 resolved = cur.fetchone()["resolved"]
-                unassigned = 0
+                cur.execute("SELECT COUNT(*) as unassigned FROM ticketing_system.tickets WHERE assigned_to IS NULL;")
+                unassigned = cur.fetchone()["unassigned"]
             else:
-                # Customer (Requester): only their tickets!
                 user_id = current_user["id"]
                 user_email = current_user["email"]
-                cur.execute("SELECT COUNT(*) as total FROM ticketing_system.tickets WHERE requester_id = %s OR requester_email = %s;", (user_id, user_email))
+                cur.execute("SELECT COUNT(*) as total FROM ticketing_system.tickets WHERE requester_id = %s OR lower(requester_email) = lower(%s);", (user_id, user_email))
                 total = cur.fetchone()["total"]
-                cur.execute("SELECT COUNT(*) as open FROM ticketing_system.tickets WHERE (requester_id = %s OR requester_email = %s) AND status = 'open';", (user_id, user_email))
+                cur.execute("SELECT COUNT(*) as open FROM ticketing_system.tickets WHERE (requester_id = %s OR lower(requester_email) = lower(%s)) AND status = 'open';", (user_id, user_email))
                 open_count = cur.fetchone()["open"]
-                cur.execute("SELECT COUNT(*) as in_progress FROM ticketing_system.tickets WHERE (requester_id = %s OR requester_email = %s) AND status = 'in_progress';", (user_id, user_email))
+                cur.execute("SELECT COUNT(*) as in_progress FROM ticketing_system.tickets WHERE (requester_id = %s OR lower(requester_email) = lower(%s)) AND status = 'in_progress';", (user_id, user_email))
                 in_progress = cur.fetchone()["in_progress"]
-                cur.execute("SELECT COUNT(*) as resolved FROM ticketing_system.tickets WHERE (requester_id = %s OR requester_email = %s) AND status IN ('resolved', 'closed');", (user_id, user_email))
+                cur.execute("SELECT COUNT(*) as resolved FROM ticketing_system.tickets WHERE (requester_id = %s OR lower(requester_email) = lower(%s)) AND status IN ('resolved', 'closed');", (user_id, user_email))
                 resolved = cur.fetchone()["resolved"]
                 unassigned = 0
 
-            cur.execute("SELECT COUNT(*) as team_count FROM ticketing_system.users WHERE role IN ('admin', 'agent');")
+            cur.execute("SELECT COUNT(*) as team_count FROM ticketing_system.users WHERE role IN ('super_admin', 'admin', 'tech_member', 'agent', 'dept_agent');")
             team_count = cur.fetchone()["team_count"]
+
+            cur.execute("SELECT COUNT(*) as dept_count FROM ticketing_system.departments WHERE is_active = TRUE;")
+            dept_count = cur.fetchone()["dept_count"]
 
             return {
                 "total": total,
@@ -656,6 +1009,7 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
                 "resolved": resolved,
                 "unassigned": unassigned,
                 "team_members": team_count,
+                "departments_count": dept_count,
                 "user_role": user_role
             }
     except Exception as e:
@@ -664,10 +1018,9 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
 
 @app.post("/api/tickets/sync-emails")
 def sync_emails(current_user: dict = Depends(get_current_user)):
-    """Fetches unread emails from Gmail and converts them into tickets."""
-    user_role = current_user.get("role", "customer")
-    if user_role in ("customer", "user"):
-        raise HTTPException(status_code=403, detail="Requesters cannot trigger email sync.")
+    user_role = current_user.get("role", "employee")
+    if not is_tech_or_agent(user_role):
+        raise HTTPException(status_code=403, detail="Employees cannot trigger email sync.")
     from backend.email_service import sync_gmail_tickets
     result = sync_gmail_tickets(mark_as_read=True)
     return result

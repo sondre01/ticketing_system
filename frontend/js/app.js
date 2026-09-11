@@ -73,27 +73,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Password Visibility Toggles ---
     setupPasswordToggle('signin-password', 'toggle-signin-password');
-    setupPasswordToggle('signup-tech-passcode', 'toggle-signup-tech-passcode');
     setupPasswordToggle('signup-password', 'toggle-signup-password');
     setupPasswordToggle('signup-confirm-password', 'toggle-signup-confirm-password');
-
-    // --- Role Change Toggle for Tech Security Passcode ---
-    const roleSelect = document.getElementById('signup-role');
-    const techPasscodeGroup = document.getElementById('tech-passcode-group');
-    const signupTechPasscodeInput = document.getElementById('signup-tech-passcode');
-
-    if (roleSelect && techPasscodeGroup) {
-        roleSelect.addEventListener('change', () => {
-            const val = roleSelect.value;
-            if (val === 'agent' || val === 'admin') {
-                techPasscodeGroup.style.display = 'block';
-                if (signupTechPasscodeInput) signupTechPasscodeInput.focus();
-            } else {
-                techPasscodeGroup.style.display = 'none';
-                if (signupTechPasscodeInput) signupTechPasscodeInput.value = '';
-            }
-        });
-    }
 
     // --- Form Elements ---
     const signinForm = document.getElementById('signin-form');
@@ -111,7 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const passwordInput = document.getElementById('signin-password');
             const btnSignin = document.getElementById('btn-signin');
 
-            const email = emailInput ? emailInput.value.trim() : '';
+            const email = emailInput ? emailInput.value.trim().toLowerCase() : '';
             const password = passwordInput ? passwordInput.value : '';
 
             if (!email) {
@@ -155,18 +136,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Store Token & User Info
                 localStorage.setItem('access_token', data.access_token);
                 if (data.user) {
-                    localStorage.setItem('user_role', data.user.role || 'customer');
+                    localStorage.setItem('user_role', data.user.role || 'employee');
                     localStorage.setItem('user_name', data.user.full_name || '');
                     localStorage.setItem('user_email', data.user.email || '');
                     localStorage.setItem('user_department', data.user.department || 'General');
                     localStorage.setItem('user_position', data.user.position || 'Employee');
+                    localStorage.setItem('can_manage_departments', data.user.can_manage_departments ? 'true' : 'false');
                 }
                 showToast('Sign-in successful! Redirecting...', 'success');
                 
-                // Role-based routing: Customers go to Customer Portal, Tech Staff go to Admin Dashboard
+                // Role-based routing
                 setTimeout(() => {
-                    const role = data.user ? (data.user.role || 'customer') : 'customer';
-                    if (role === 'admin' || role === 'agent') {
+                    const role = data.user ? (data.user.role || 'employee') : 'employee';
+                    const staffRoles = ['super_admin', 'admin', 'tech_member', 'agent', 'dept_agent'];
+                    if (staffRoles.includes(role)) {
                         window.location.href = 'dashboard.html';
                     } else {
                         window.location.href = 'portal.html';
@@ -193,15 +176,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const departmentInput = document.getElementById('signup-department');
             const positionInput = document.getElementById('signup-position');
             const roleInput = document.getElementById('signup-role');
-            const techPasscodeInput = document.getElementById('signup-tech-passcode');
-            const btnGotoPassword = document.getElementById('btn-goto-password');
 
             const fullName = fullnameInput ? fullnameInput.value.trim() : '';
-            const email = emailInput ? emailInput.value.trim() : '';
+            const email = emailInput ? emailInput.value.trim().toLowerCase() : '';
             const department = departmentInput ? departmentInput.value.trim() : 'General';
             const position = positionInput ? positionInput.value.trim() : 'Employee';
-            const role = roleInput ? roleInput.value : 'customer';
-            const techPasscode = techPasscodeInput ? techPasscodeInput.value.trim() : '';
+            const role = roleInput ? roleInput.value : 'employee';
 
             if (!fullName) {
                 showToast('Please enter your full name.', 'error');
@@ -227,48 +207,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Tech Role & Security Passcode Validation
-            if (role === 'admin' || role === 'agent' || techPasscode) {
-                if (!techPasscode) {
-                    showToast('Tech Security Passcode is required to register as Tech Staff or Admin.', 'error');
-                    if (techPasscodeInput) techPasscodeInput.focus();
-                    return;
-                }
-
-                // Verify passcode directly against backend before moving to Step 2
-                setLoading(btnGotoPassword, true, 'Verifying Passcode...');
-                try {
-                    const verifyRes = await fetch(`${API_URL}/api/auth/verify-passcode`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ passcode: techPasscode })
-                    });
-                    const verifyData = await verifyRes.json();
-                    if (!verifyRes.ok || !verifyData.valid) {
-                        setLoading(btnGotoPassword, false, 'Continue to Password &rarr;');
-                        showToast(verifyData.detail || 'Invalid Tech Security Passcode. Access denied.', 'error');
-                        if (techPasscodeInput) {
-                            techPasscodeInput.focus();
-                            techPasscodeInput.select();
-                        }
-                        return;
-                    }
-                } catch (verifyErr) {
-                    setLoading(btnGotoPassword, false, 'Continue to Password &rarr;');
-                    showToast('Unable to verify passcode with the server. Please check your connection.', 'error');
-                    return;
-                }
-                setLoading(btnGotoPassword, false, 'Continue to Password &rarr;');
-            }
-
             // Save Step 1 state
             pendingSignupData = {
                 fullName,
                 email,
                 department,
                 position,
-                role,
-                techPasscode
+                role
             };
 
             // Personalize Step 2 card
@@ -338,7 +283,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         department: pendingSignupData.department,
                         position: pendingSignupData.position,
                         role: pendingSignupData.role,
-                        tech_passcode: pendingSignupData.techPasscode || null,
                         password: password
                     })
                 });
@@ -358,17 +302,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.access_token) {
                     localStorage.setItem('access_token', data.access_token);
                     if (data.user) {
-                        localStorage.setItem('user_role', data.user.role || 'customer');
+                        localStorage.setItem('user_role', data.user.role || 'employee');
                         localStorage.setItem('user_name', data.user.full_name || '');
                         localStorage.setItem('user_email', data.user.email || '');
                         localStorage.setItem('user_department', data.user.department || 'General');
                         localStorage.setItem('user_position', data.user.position || 'Employee');
+                        localStorage.setItem('can_manage_departments', data.user.can_manage_departments ? 'true' : 'false');
                     }
                     showToast('Account created successfully! Redirecting...', 'success');
 
-                    const userRole = data.user ? (data.user.role || 'customer') : 'customer';
+                    const userRole = data.user ? (data.user.role || 'employee') : 'employee';
                     setTimeout(() => {
-                        if (userRole === 'admin' || userRole === 'agent') {
+                        const staffRoles = ['super_admin', 'admin', 'tech_member', 'agent', 'dept_agent'];
+                        if (staffRoles.includes(userRole)) {
                             window.location.href = 'dashboard.html';
                         } else {
                             window.location.href = 'portal.html';

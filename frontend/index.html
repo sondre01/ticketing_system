@@ -147,36 +147,12 @@
                         <label for="signup-role" class="form-label">I am registering as</label>
                         <div class="input-wrapper">
                             <select id="signup-role" class="form-input" style="cursor: pointer; background-color: var(--bg-pitch-black);">
-                                <option value="customer" selected>Regular Employee (Raise &amp; track support requests)</option>
-                                <option value="agent">Tech Team Member (Resolve tickets)</option>
-                                <option value="admin">Tech Lead / IT Manager (Admin access)</option>
+                                <option value="employee" selected>Regular Employee (Raise &amp; track tickets)</option>
+                                <option value="tech_member">Tech Team Member (Resolve tickets across systems)</option>
+                                <option value="dept_agent">Department Agent (Department support handler)</option>
+                                <option value="super_admin">Main Admin / Tech Manager (Super Admin)</option>
                             </select>
                         </div>
-                    </div>
-
-                    <!-- Tech Security Passcode (only shown if Tech Team is selected) -->
-                    <div class="form-group" id="tech-passcode-group" style="display: none;">
-                        <label for="signup-tech-passcode" class="form-label" style="color: var(--accent-yellow);">
-                            Tech Security Passcode *
-                        </label>
-                        <div class="input-wrapper">
-                            <input 
-                                type="password" 
-                                id="signup-tech-passcode" 
-                                class="form-input" 
-                                placeholder="Enter fixed tech passcode"
-                                style="border-color: var(--border-yellow-glow);"
-                            >
-                            <button type="button" class="password-toggle" id="toggle-signup-tech-passcode" aria-label="Toggle tech passcode visibility">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="eye-icon">
-                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                                    <circle cx="12" cy="12" r="3" />
-                                </svg>
-                            </button>
-                        </div>
-                        <span style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem; display: block;">
-                            🔒 Passcode required to prevent unauthorized tech/admin elevation.
-                        </span>
                     </div>
                     
                     <button type="submit" class="btn-primary" id="btn-goto-password">
