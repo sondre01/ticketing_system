@@ -1,6 +1,15 @@
 // Frontend Authentication Handler for Khin Ticket
 
-const API_URL = (window.location.port !== '5000') ? 'http://127.0.0.1:5000' : window.location.origin;
+const API_URL = (window.location.port !== '5000') 
+    ? `${window.location.protocol === 'https:' ? 'https:' : 'http:'}//${window.location.hostname || '127.0.0.1'}:5000` 
+    : window.location.origin;
+
+function formatApiError(error) {
+    if (error && (error.message === 'Failed to fetch' || error.name === 'TypeError')) {
+        return 'Cannot connect to backend server. Please make sure the Python server is running on port 5000 (run: python run.py).';
+    }
+    return error.message || 'An unexpected error occurred.';
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- Container Elements ---
@@ -158,7 +167,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             } catch (error) {
                 console.error('Sign-in error:', error);
-                showToast(error.message, 'error');
+                showToast(formatApiError(error), 'error');
                 setLoading(btnSignin, false, 'Sign In');
             }
         });
@@ -175,13 +184,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const emailInput = document.getElementById('signup-email');
             const departmentInput = document.getElementById('signup-department');
             const positionInput = document.getElementById('signup-position');
-            const roleInput = document.getElementById('signup-role');
 
             const fullName = fullnameInput ? fullnameInput.value.trim() : '';
             const email = emailInput ? emailInput.value.trim().toLowerCase() : '';
             const department = departmentInput ? departmentInput.value.trim() : 'General';
             const position = positionInput ? positionInput.value.trim() : 'Employee';
-            const role = roleInput ? roleInput.value : 'employee';
 
             if (!fullName) {
                 showToast('Please enter your full name.', 'error');
@@ -212,8 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 fullName,
                 email,
                 department,
-                position,
-                role
+                position
             };
 
             // Personalize Step 2 card
@@ -282,7 +288,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         email: pendingSignupData.email,
                         department: pendingSignupData.department,
                         position: pendingSignupData.position,
-                        role: pendingSignupData.role,
                         password: password
                     })
                 });
@@ -334,7 +339,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             } catch (error) {
                 console.error('Sign-up error:', error);
-                showToast(error.message, 'error');
+                showToast(formatApiError(error), 'error');
                 setLoading(btnCompleteSignup, false, 'Create Account');
             }
         });

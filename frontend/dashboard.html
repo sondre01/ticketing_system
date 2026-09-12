@@ -432,7 +432,9 @@
     <div class="toast-container" id="toast-container"></div>
 
     <script>
-        const API_URL = (window.location.port !== '5000') ? 'http://127.0.0.1:5000' : window.location.origin;
+        const API_URL = (window.location.port !== '5000') 
+            ? `${window.location.protocol === 'https:' ? 'https:' : 'http:'}//${window.location.hostname || '127.0.0.1'}:5000` 
+            : window.location.origin;
         
         let currentUser = null;
         let allTickets = [];
@@ -488,7 +490,12 @@
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
 
-                if (!response.ok) throw new Error('Session expired');
+                if (response.status === 401 || response.status === 403) {
+                    localStorage.removeItem('access_token');
+                    window.location.href = 'index.html?expired=true';
+                    return;
+                }
+                if (!response.ok) throw new Error('Failed to load profile');
                 const data = await response.json();
                 currentUser = data.user;
 
@@ -550,9 +557,13 @@
                 await loadTickets();
 
             } catch (err) {
-                console.error(err);
-                localStorage.removeItem('access_token');
-                window.location.href = 'index.html?expired=true';
+                console.error('fetchUserProfile error:', err);
+                if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
+                    showToast('Cannot connect to backend server. Make sure Python backend is running on port 5000 (run: python run.py).', 'error');
+                } else {
+                    localStorage.removeItem('access_token');
+                    window.location.href = 'index.html?expired=true';
+                }
             }
         }
 

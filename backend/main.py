@@ -1,6 +1,20 @@
 import os
+import sys
 import logging
 from contextlib import asynccontextmanager
+
+# Ensure repository root is in sys.path when executed directly
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+# Automatically switch to project virtual environment if run directly with global python
+venv_python = os.path.join(ROOT_DIR, ".venv", "Scripts", "python.exe")
+if __name__ == "__main__" and os.path.exists(venv_python) and sys.executable.lower() != os.path.abspath(venv_python).lower():
+    import subprocess
+    result = subprocess.run([venv_python] + sys.argv)
+    sys.exit(result.returncode)
+
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -162,6 +176,15 @@ def require_tech_access(current_user: dict = Depends(get_current_user)):
         )
     return current_user
 
+def user_has_department_access(user: dict, ticket_dept_id: int | None, ticket_dept_name: str | None) -> bool:
+    """Checks whether a dept_agent user has access to a specific ticket's department."""
+    user_dept = (user.get("department") or "General").strip().lower()
+    clean_user_dept = user_dept.split('(')[0].strip()
+    t_name = (ticket_dept_name or "").strip().lower()
+    if not clean_user_dept or not t_name:
+        return False
+    return clean_user_dept in t_name or t_name in clean_user_dept
+
 def generate_ticket_code(cur) -> str:
     cur.execute("SELECT MAX(id) as max_id FROM ticketing_system.tickets;")
     res = cur.fetchone()
@@ -176,33 +199,12 @@ def register(req: RegisterRequest):
     full_name = req.full_name.strip()
     department = (req.department or "General").strip()
     position = (req.position or "Employee").strip()
-    raw_role = (req.role or "employee").strip().lower()
-
-    if "@" not in email:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid email format."
-        )
-
-    if len(req.password) < 6:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password must be at least 6 characters long."
-        )
-
-    # Normalize role cleanly without secret passcode barriers
-    if raw_role in ("super_admin", "admin"):
-        final_role = "super_admin"
-        can_manage_depts = True
-    elif raw_role in ("tech_member", "agent"):
-        final_role = "tech_member"
-        can_manage_depts = False
-    elif raw_role in ("dept_agent", "department_agent"):
-        final_role = "dept_agent"
-        can_manage_depts = False
-    else:
-        final_role = "employee"
-        can_manage_depts = False
+    # Strategy 1 (Zero-Trust Role Enforcement): 
+    # All public registrations are strictly assigned role = 'employee'.
+    # Privileged roles (tech_member, dept_agent, super_admin) and management flags
+    # can ONLY be granted by the Super Admin / Tech Manager via the Users & Hierarchy panel.
+    final_role = "employee"
+    can_manage_depts = False
 
     pwd_hash = hash_password(req.password)
 
@@ -611,6 +613,19 @@ def list_tickets(
         # Regular employee: ONLY see tickets they raised!
         query += " AND (t.requester_id = %s OR lower(t.requester_email) = lower(%s))"
         params.extend([current_user["id"], current_user["email"]])
+    elif user_role == "dept_agent":
+        # Department Agent: ONLY see tickets belonging to their department, or assigned to/raised by them!
+        user_dept = (current_user.get("department") or "General").strip()
+        dept_keyword = user_dept.split('(')[0].strip()
+        dept_pattern = f"%{dept_keyword}%"
+        query += """ AND (
+            t.assigned_to = %s 
+            OR t.requester_id = %s 
+            OR lower(t.requester_email) = lower(%s)
+            OR lower(t.department_name) LIKE lower(%s)
+            OR lower(d.name) LIKE lower(%s)
+        )"""
+        params.extend([current_user["id"], current_user["id"], current_user["email"], dept_pattern, dept_pattern])
 
     if status_filter:
         query += " AND t.status = %s"
@@ -753,6 +768,12 @@ def get_ticket_details(ticket_id: int, current_user: dict = Depends(get_current_
             if not is_tech_or_agent(user_role):
                 if ticket.get("requester_id") != current_user["id"] and ticket.get("requester_email") != current_user["email"]:
                     raise HTTPException(status_code=403, detail="You can only view your own tickets.")
+            elif user_role == "dept_agent":
+                is_own = (ticket.get("requester_id") == current_user["id"] or (ticket.get("requester_email") or "").lower() == current_user["email"].lower())
+                is_assignee = (ticket.get("assigned_to") == current_user["id"])
+                has_access = user_has_department_access(current_user, ticket.get("department_id"), ticket.get("department_name") or ticket.get("resolved_dept_name"))
+                if not (is_own or is_assignee or has_access):
+                    raise HTTPException(status_code=403, detail="You do not have permission to view tickets outside your department.")
 
             if ticket.get("created_at"):
                 ticket["created_at"] = ticket["created_at"].isoformat()
@@ -824,7 +845,37 @@ def update_ticket(
                     else:
                         raise HTTPException(status_code=400, detail="Employees can only set status to 'open' or 'closed'.")
 
-            # 2. Tech Team Members & Department Agents: Cannot assign tickets!
+            # 2. Department Agents: Can update tickets ONLY for their department (or assigned to / raised by them)!
+            elif user_role == "dept_agent":
+                is_own = (ticket.get("requester_id") == user_id or (ticket.get("requester_email") or "").lower() == current_user["email"].lower())
+                is_assignee = (ticket.get("assigned_to") == user_id)
+                has_access = user_has_department_access(current_user, ticket.get("department_id"), ticket.get("department_name"))
+                if not (is_own or is_assignee or has_access):
+                    raise HTTPException(status_code=403, detail="You cannot modify tickets outside your department.")
+
+                if req.assigned_to is not None:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Department agents cannot assign tickets. Only the Tech Manager / Super Admin can assign tickets."
+                    )
+
+                if req.status:
+                    valid_statuses = ("open", "in_progress", "resolved", "closed")
+                    if req.status.lower() in valid_statuses:
+                        updates.append("status = %s")
+                        params.append(req.status.lower())
+
+                if req.priority:
+                    valid_priorities = ("low", "medium", "high", "urgent")
+                    if req.priority.lower() in valid_priorities:
+                        updates.append("priority = %s")
+                        params.append(req.priority.lower())
+
+                if req.department_id is not None:
+                    updates.append("department_id = %s")
+                    params.append(req.department_id)
+
+            # 3. Tech Team Members: Can update tickets across systems but cannot assign!
             elif not is_super_admin(user_role):
                 if req.assigned_to is not None:
                     raise HTTPException(
@@ -848,7 +899,7 @@ def update_ticket(
                     updates.append("department_id = %s")
                     params.append(req.department_id)
 
-            # 3. Super Admin / Manager: Full access including assigning tickets!
+            # 4. Super Admin / Manager: Full access including assigning tickets!
             else:
                 if req.status:
                     valid_statuses = ("open", "in_progress", "resolved", "closed")
@@ -929,6 +980,13 @@ def add_comment(
                 if ticket.get("requester_id") != current_user["id"] and ticket.get("requester_email") != current_user["email"]:
                     raise HTTPException(status_code=403, detail="You can only comment on your own tickets.")
                 is_internal = False
+            elif user_role == "dept_agent":
+                is_own = (ticket.get("requester_id") == current_user["id"] or (ticket.get("requester_email") or "").lower() == current_user["email"].lower())
+                is_assignee = (ticket.get("assigned_to") == current_user["id"])
+                has_access = user_has_department_access(current_user, ticket.get("department_id"), ticket.get("department_name"))
+                if not (is_own or is_assignee or has_access):
+                    raise HTTPException(status_code=403, detail="You cannot comment on tickets outside your department.")
+                is_internal = req.is_internal
             else:
                 is_internal = req.is_internal
 
@@ -971,8 +1029,35 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
                 resolved = cur.fetchone()["resolved"]
                 cur.execute("SELECT COUNT(*) as unassigned FROM ticketing_system.tickets WHERE assigned_to IS NULL;")
                 unassigned = cur.fetchone()["unassigned"]
+            elif user_role == "dept_agent":
+                user_dept = (current_user.get("department") or "General").strip()
+                dept_keyword = user_dept.split('(')[0].strip()
+                dept_pattern = f"%{dept_keyword}%"
+                cur.execute(
+                    """
+                    SELECT 
+                        COUNT(*) as total,
+                        COUNT(CASE WHEN t.status = 'open' THEN 1 END) as open,
+                        COUNT(CASE WHEN t.status = 'in_progress' THEN 1 END) as in_progress,
+                        COUNT(CASE WHEN t.status IN ('resolved', 'closed') THEN 1 END) as resolved,
+                        COUNT(CASE WHEN t.assigned_to IS NULL THEN 1 END) as unassigned
+                    FROM ticketing_system.tickets t
+                    LEFT JOIN ticketing_system.departments d ON t.department_id = d.id
+                    WHERE t.assigned_to = %s 
+                       OR t.requester_id = %s 
+                       OR lower(t.requester_email) = lower(%s)
+                       OR lower(t.department_name) LIKE lower(%s)
+                       OR lower(d.name) LIKE lower(%s);
+                    """,
+                    (current_user["id"], current_user["id"], current_user["email"], dept_pattern, dept_pattern)
+                )
+                stats = cur.fetchone()
+                total = stats["total"] or 0
+                open_count = stats["open"] or 0
+                in_progress = stats["in_progress"] or 0
+                resolved = stats["resolved"] or 0
+                unassigned = stats["unassigned"] or 0
             elif is_tech_or_agent(user_role):
-                user_id = current_user["id"]
                 cur.execute("SELECT COUNT(*) as total FROM ticketing_system.tickets;")
                 total = cur.fetchone()["total"]
                 cur.execute("SELECT COUNT(*) as open FROM ticketing_system.tickets WHERE status = 'open';")
@@ -1032,3 +1117,10 @@ if os.path.exists(frontend_dir):
     logger.info(f"Serving frontend static files from: {frontend_dir}")
 else:
     logger.warning(f"Frontend static files directory not found at {frontend_dir}. Make sure you create it.")
+
+if __name__ == "__main__":
+    import uvicorn
+    print(f"[INFO] Starting Khin Ticket backend on http://{HOST}:{PORT}")
+    print(f"[INFO] Frontend accessible at http://{HOST}:{PORT}")
+    print(f"[INFO] API documentation at http://{HOST}:{PORT}/docs")
+    uvicorn.run("backend.main:app", host=HOST, port=PORT, reload=True)

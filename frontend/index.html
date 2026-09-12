@@ -82,7 +82,7 @@
             <!-- --- SIGN UP FORM --- -->
             <div id="signup-container" class="form-container">
                 <div class="auth-card-header">
-                    <span style="display: inline-block; font-size: 0.75rem; font-weight: 700; color: var(--accent-yellow); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.4rem;">Step 1 of 2: Profile &amp; Role</span>
+                    <span style="display: inline-block; font-size: 0.75rem; font-weight: 700; color: var(--accent-yellow); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.4rem;">Step 1 of 2: Profile &amp; Department</span>
                     <h2 id="signup-title">Get Started</h2>
                     <p>Create an account to join Khin Ticket</p>
                 </div>
@@ -143,16 +143,13 @@
                         </div>
                     </div>
 
-                    <div class="form-group">
-                        <label for="signup-role" class="form-label">I am registering as</label>
-                        <div class="input-wrapper">
-                            <select id="signup-role" class="form-input" style="cursor: pointer; background-color: var(--bg-pitch-black);">
-                                <option value="employee" selected>Regular Employee (Raise &amp; track tickets)</option>
-                                <option value="tech_member">Tech Team Member (Resolve tickets across systems)</option>
-                                <option value="dept_agent">Department Agent (Department support handler)</option>
-                                <option value="super_admin">Main Admin / Tech Manager (Super Admin)</option>
-                            </select>
-                        </div>
+                    <div style="background-color: rgba(255, 215, 0, 0.05); border: 1px solid rgba(255, 215, 0, 0.15); border-radius: 8px; padding: 0.75rem 0.9rem; margin-top: 0.25rem; margin-bottom: 1.25rem; font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.6rem;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-yellow); flex-shrink: 0;">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="16" x2="12" y2="12"></line>
+                            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                        </svg>
+                        <span>All new accounts are created with standard employee access. Tech and agent privileges are managed by the Tech Manager.</span>
                     </div>
                     
                     <button type="submit" class="btn-primary" id="btn-goto-password">
